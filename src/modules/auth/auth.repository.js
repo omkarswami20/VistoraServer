@@ -35,8 +35,21 @@
     return rows[0] || null;
   }
 
+  async function markUserAsVerified(userId) {
+    const query = `
+      UPDATE users
+      SET is_verified = TRUE
+      WHERE id = $1
+      RETURNING id, name, email, mobile, role, is_verified;
+    `;
+
+    const { rows } = await pool.query(query, [userId]);
+    return rows[0] || null;
+  }
+
   module.exports = {
     createUser,
     findUserByMobile,
     findUserByEmail,
+    markUserAsVerified,
   };
