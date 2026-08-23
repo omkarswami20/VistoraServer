@@ -1,8 +1,10 @@
 const express = require('express');
+const cookieParser = require('cookie-parser');
 const pool = require('./config/db');
 const errorMiddleware = require('./middleware/error.middleware');
 const app = express();
 app.use(express.json());
+app.use(cookieParser());
 app.use('/api/auth', require('./modules/auth'));
 
 

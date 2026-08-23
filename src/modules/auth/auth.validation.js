@@ -45,9 +45,29 @@ const mpinSetSchema = z.object({
 }).strict();
 
 
+const mpinVerifySchema = z.object({
+  mobile: mobileSchema,
+  otpTicket: z.string().trim().min(1, 'OTP ticket is required'),
+  mpin: mpinSchema,
+}).strict();
+
+
+const refreshTokenSchema = z.object({
+  refreshToken: z.string().trim().min(1, 'Refresh token is required').optional(),
+});
+
+
+const mpinUnlockSchema = z.object({
+  mpin: mpinSchema,
+}).strict();
+
+
 module.exports = {
   registerSchema,
   otpRequestSchema,
   otpVerifySchema,
   mpinSetSchema,
+  mpinVerifySchema,
+  refreshTokenSchema,
+  mpinUnlockSchema,
 };

@@ -52,9 +52,73 @@
     }
   }
 
+  async function verifyMpin(req, res, next) {
+    try {
+      const result = await authService.verifyMpin(req.body);
+
+      return res.status(200).json({
+        message: 'Login successful',
+        ...result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async function refreshToken(req, res, next) {
+    try {
+      const token = req.body.refreshToken || req.cookies?.refreshToken;
+      const result = await authService.refreshAccessToken({ refreshToken: token });
+
+      return res.status(200).json({
+        message: 'Token refreshed successfully',
+        ...result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async function unlockMpin(req, res, next) {
+    try {
+      const result = await authService.unlockMpin({
+        userId: req.user.id,
+        mpin: req.body.mpin,
+      });
+
+      return res.status(200).json({
+        message: 'Unlocked successfully',
+        ...result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async function logout(req, res, next) {
+    try {
+      const token = req.body.refreshToken || req.cookies?.refreshToken;
+      const result = await authService.logout({
+        refreshToken: token,
+        userId: req.user?.id,
+      });
+
+      return res.status(200).json({
+        message: 'Logged out successfully',
+        ...result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   module.exports = {
     register,
     requestOtp,
     verifyOtp,
     setMpin,
+    verifyMpin,
+    refreshToken,
+    unlockMpin,
+    logout,
   };

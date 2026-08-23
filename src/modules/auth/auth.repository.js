@@ -70,11 +70,57 @@
     return rows[0];
   }
 
+  async function findUserById(userId) {
+    const query = `
+      SELECT *
+      FROM users
+      WHERE id = $1;
+    `;
+
+    const { rows } = await pool.query(query, [userId]);
+    return rows[0] || null;
+  }
+
+  async function findRefreshToken(token) {
+    const query = `
+      SELECT *
+      FROM refresh_tokens
+      WHERE token = $1;
+    `;
+
+    const { rows } = await pool.query(query, [token]);
+    return rows[0] || null;
+  }
+
+  async function deleteRefreshToken(token) {
+    const query = `
+      DELETE FROM refresh_tokens
+      WHERE token = $1
+      RETURNING id;
+    `;
+
+    const { rows } = await pool.query(query, [token]);
+    return rows[0] || null;
+  }
+
+  async function deleteRefreshTokensByUserId(userId) {
+    const query = `
+      DELETE FROM refresh_tokens
+      WHERE user_id = $1;
+    `;
+
+    await pool.query(query, [userId]);
+  }
+
   module.exports = {
     createUser,
     findUserByMobile,
     findUserByEmail,
+    findUserById,
     markUserAsVerified,
     updateUserMpinHash,
     createRefreshToken,
+    findRefreshToken,
+    deleteRefreshToken,
+    deleteRefreshTokensByUserId,
   };
