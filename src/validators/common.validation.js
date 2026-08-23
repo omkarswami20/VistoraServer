@@ -10,7 +10,13 @@ const otpSchema = z
   .trim()
   .regex(/^\d{5,6}$/, 'OTP must contain 5 or 6 digits');
 
+const mpinSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{4}$/, 'MPIN must contain exactly 4 digits');
+
 module.exports = {
   mobileSchema,
   otpSchema,
+  mpinSchema,
 };

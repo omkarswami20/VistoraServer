@@ -39,8 +39,22 @@
     }
   }
 
+  async function setMpin(req, res, next) {
+    try {
+      const result = await authService.setMpin(req.body);
+
+      return res.status(200).json({
+        message: 'MPIN set successfully',
+        ...result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   module.exports = {
     register,
     requestOtp,
     verifyOtp,
+    setMpin,
   };

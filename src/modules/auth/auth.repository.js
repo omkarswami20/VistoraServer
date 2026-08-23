@@ -47,9 +47,34 @@
     return rows[0] || null;
   }
 
+  async function updateUserMpinHash(userId, mpinHash) {
+    const query = `
+      UPDATE users
+      SET mpin_hash = $1
+      WHERE id = $2
+      RETURNING id, name, email, mobile, role, is_verified, created_at;
+    `;
+
+    const { rows } = await pool.query(query, [mpinHash, userId]);
+    return rows[0] || null;
+  }
+
+  async function createRefreshToken(userId, token, expiresAt) {
+    const query = `
+      INSERT INTO refresh_tokens (user_id, token, expires_at)
+      VALUES ($1, $2, $3)
+      RETURNING id, user_id, token, expires_at, created_at;
+    `;
+
+    const { rows } = await pool.query(query, [userId, token, expiresAt]);
+    return rows[0];
+  }
+
   module.exports = {
     createUser,
     findUserByMobile,
     findUserByEmail,
     markUserAsVerified,
+    updateUserMpinHash,
+    createRefreshToken,
   };

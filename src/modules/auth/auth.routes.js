@@ -5,6 +5,7 @@
     registerSchema,
     otpRequestSchema,
     otpVerifySchema,
+    mpinSetSchema,
   } = require('./auth.validation');
   const validate = require('../../middleware/validate.middleware');
 
@@ -26,6 +27,12 @@
     '/otp/verify',
     validate(otpVerifySchema),
     authController.verifyOtp
+  );
+
+  router.post(
+    '/mpin/set',
+    validate(mpinSetSchema),
+    authController.setMpin
   );
 
   module.exports = router;

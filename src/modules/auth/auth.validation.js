@@ -3,6 +3,7 @@ const { z } = require('zod');
 const {
   mobileSchema,
   otpSchema,
+  mpinSchema,
 } = require('../../validators/common.validation');
 
 const registerSchema = z.object({
@@ -37,8 +38,16 @@ const otpVerifySchema = z.object({
 }).strict();
 
 
+const mpinSetSchema = z.object({
+  mobile: mobileSchema,
+  otpTicket: z.string().trim().min(1, 'OTP ticket is required'),
+  mpin: mpinSchema,
+}).strict();
+
+
 module.exports = {
   registerSchema,
   otpRequestSchema,
   otpVerifySchema,
+  mpinSetSchema,
 };
