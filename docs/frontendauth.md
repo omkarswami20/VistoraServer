@@ -1,6 +1,7 @@
 # Vistora Frontend Authentication Integration Guide
 
-> **Target Audience:** Frontend AI Agent / React Developer  
+> **Target Audience:** Frontend AI Agent / Vue.js 3 Developer  
+> **Frontend Stack:** Vue 3 (Composition API `<script setup lang="ts">`) + TanStack Query (`@tanstack/vue-query`) + Pinia + Axios + Vue Router + Tailwind CSS  
 > **Backend Base URL:** `http://localhost:5000`  
 > **Auth Base Route:** `http://localhost:5000/api/auth`  
 > **Default Headers:** `Content-Type: application/json`
@@ -42,13 +43,13 @@ flowchart TD
     
     D -->|status == 'SET_MPIN_REQUIRED'| F[Screen: Set 4-Digit MPIN]
     F --> G[POST /api/auth/mpin/set]
-    G --> H[Tokens Issued -> Dashboard]
+    G --> H[Tokens Issued -> Pinia Store -> Dashboard]
     
     D -->|status == 'ENTER_MPIN'| I[Screen: Enter 4-Digit MPIN]
     I --> J[POST /api/auth/mpin/verify]
     J --> H
 
-    H -->|Tab Switched / Visibility Hidden| K[Show Tab-Lock Screen]
+    H -->|Tab Switched / Visibility Hidden| K[Show TabLockModal.vue Overlay]
     K --> L[POST /api/auth/mpin/unlock]
     L -->|Success| H
 ```
@@ -68,7 +69,7 @@ Creates a new `GUEST` or `HOST` user (`is_verified = false`, `mpin_hash = null`)
   "name": "Sameer Guest",
   "email": "sameer.guest@example.com",
   "mobile": "9811002201",
-  "role": "GUEST" // "GUEST" | "HOST"
+  "role": "GUEST"
 }
 ```
 - **Response `201 Created`:**
@@ -104,7 +105,7 @@ Triggers OTP dispatch for a mobile number.
 {
   "message": "OTP sent successfully",
   "otpSent": true,
-  "role": "GUEST" // "GUEST" | "HOST" | "ADMIN"
+  "role": "GUEST"
 }
 ```
 
@@ -131,7 +132,7 @@ Verifies OTP and marks `is_verified = true`.
   "otpTicket": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
-👉 *Frontend action: Store `otpTicket` in memory and navigate user to `<SetMpinScreen />`.*
+👉 *Action: Store `otpTicket` and `mobile` in Pinia authStore, navigate to `/set-mpin`.*
 
 #### Case B: Returning Guest / Host (MPIN already set)
 - **Response `200 OK`:**
@@ -142,7 +143,7 @@ Verifies OTP and marks `is_verified = true`.
   "otpTicket": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
-👉 *Frontend action: Store `otpTicket` in memory and navigate user to `<EnterMpinScreen />`.*
+👉 *Action: Store `otpTicket` and `mobile` in Pinia authStore, navigate to `/enter-mpin`.*
 
 #### Case C: Admin (No MPIN required)
 - **Response `200 OK`:**
@@ -163,7 +164,7 @@ Verifies OTP and marks `is_verified = true`.
   "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
-👉 *Frontend action: Store tokens, set `user` in AuthContext, navigate directly to `/admin`.*
+👉 *Action: Store tokens & user in Pinia authStore, navigate directly to `/admin`.*
 
 ---
 
@@ -176,7 +177,7 @@ Hashes 4-digit MPIN and issues initial Access + Refresh tokens.
 {
   "mobile": "9811002201",
   "otpTicket": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "mpin": "1234" // Exactly 4 digits
+  "mpin": "1234"
 }
 ```
 - **Response `200 OK`:**
@@ -208,7 +209,7 @@ Authenticates returning user via MPIN and issues Access + Refresh tokens.
 {
   "mobile": "9811002201",
   "otpTicket": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "mpin": "1234" // Exactly 4 digits
+  "mpin": "1234"
 }
 ```
 - **Response `200 OK`:**
@@ -255,10 +256,7 @@ Generates a new 15-minute Access Token when the existing one expires.
 Unlocks the UI overlay when user returns to the tab. **No new tokens are generated.**
 
 - **Endpoint:** `POST /api/auth/mpin/unlock`
-- **Headers:**
-  ```http
-  Authorization: Bearer <accessToken>
-  ```
+- **Headers:** `Authorization: Bearer <accessToken>`
 - **Request Body:**
 ```json
 {
@@ -295,9 +293,20 @@ Revokes refresh token from database.
 
 ---
 
-## 💻 5. Frontend Implementation Blueprint (React + TypeScript)
+## 💻 5. Frontend Implementation Blueprint (Vue 3 + Pinia + TanStack Query)
 
-### 5.1 TypeScript Types (`src/types/auth.types.ts`)
+### 5.1 Project Setup & Dependencies
+
+```bash
+npm create vite@latest vistora-client -- --template vue-ts
+cd vistora-client
+npm install pinia @tanstack/vue-query axios vue-router
+npm install -D tailwindcss @tailwindcss/vite
+```
+
+---
+
+### 5.2 TypeScript Types (`src/types/auth.types.ts`)
 
 ```typescript
 export type Role = 'GUEST' | 'HOST' | 'ADMIN';
@@ -354,7 +363,7 @@ export interface AuthSuccessResponse {
 
 ---
 
-### 5.2 Axios Client with Silent 401 Refresh Interceptor (`src/api/client.ts`)
+### 5.3 Axios Client with Silent 401 Refresh Interceptor (`src/api/client.ts`)
 
 ```typescript
 import axios from 'axios';
@@ -366,7 +375,7 @@ const api = axios.create({
   },
 });
 
-// Attach Access Token to every request
+// Attach Access Token to outgoing requests
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken');
   if (token && config.headers) {
@@ -375,20 +384,17 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle Token Expiry & Silent Refresh
+// Silent 401 token refresh queue
 let isRefreshing = false;
 let failedQueue: Array<{
-  resolve: (value?: unknown) => void;
-  reject: (reason?: unknown) => void;
+  resolve: (token: string) => void;
+  reject: (err: unknown) => void;
 }> = [];
 
 const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue.forEach((prom) => {
-    if (error) {
-      prom.reject(error);
-    } else {
-      prom.resolve(token);
-    }
+    if (error) prom.reject(error);
+    else if (token) prom.resolve(token);
   });
   failedQueue = [];
 };
@@ -406,7 +412,7 @@ api.interceptors.response.use(
       }
 
       if (isRefreshing) {
-        return new Promise((resolve, reject) => {
+        return new Promise<string>((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         })
           .then((token) => {
@@ -456,113 +462,385 @@ export default api;
 
 ---
 
-### 5.3 Tab-Lock Hook (`src/hooks/useTabLock.ts`)
+### 5.4 Pinia Auth Store (`src/stores/auth.store.ts`)
+
+Pinia manages client session state (user, tokens, tab-lock, temporary OTP ticket).
 
 ```typescript
-import { useState, useEffect } from 'react';
+import { defineStore } from 'pinia';
+import { ref, computed } from 'vue';
+import type { User, Role } from '../types/auth.types';
 
-export function useTabLock(isAuthenticated: boolean, role?: string) {
-  const [isLocked, setIsLocked] = useState(false);
-  const [wasHidden, setWasHidden] = useState(false);
+export const useAuthStore = defineStore('auth', () => {
+  // State
+  const user = ref<User | null>(
+    localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!) : null
+  );
+  const accessToken = ref<string | null>(localStorage.getItem('accessToken'));
+  const refreshToken = ref<string | null>(localStorage.getItem('refreshToken'));
 
-  useEffect(() => {
-    // Admin is exempted from tab-lock per PRD
-    if (!isAuthenticated || role === 'ADMIN') return;
+  // Intermediate state for OTP -> MPIN flow
+  const pendingMobile = ref<string>('');
+  const pendingOtpTicket = ref<string>('');
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        setWasHidden(true);
-      } else if (document.visibilityState === 'visible' && wasHidden) {
-        setIsLocked(true);
-      }
-    };
+  // Soft tab-lock state (in memory only)
+  const isLocked = ref<boolean>(false);
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [isAuthenticated, role, wasHidden]);
+  // Getters
+  const isAuthenticated = computed(() => !!accessToken.value && !!user.value);
+  const userRole = computed<Role | undefined>(() => user.value?.role);
 
-  const unlock = () => {
-    setIsLocked(false);
-    setWasHidden(false);
+  // Actions
+  function setSession(newUser: User, newAccess: string, newRefresh: string) {
+    user.value = newUser;
+    accessToken.value = newAccess;
+    refreshToken.value = newRefresh;
+    isLocked.value = false;
+
+    localStorage.setItem('user', JSON.stringify(newUser));
+    localStorage.setItem('accessToken', newAccess);
+    localStorage.setItem('refreshToken', newRefresh);
+
+    // Clear temporary pending ticket
+    pendingMobile.value = '';
+    pendingOtpTicket.value = '';
+  }
+
+  function setPendingOtp(mobile: string, otpTicket: string) {
+    pendingMobile.value = mobile;
+    pendingOtpTicket.value = otpTicket;
+  }
+
+  function lockTab() {
+    // Only lock authenticated Guests and Hosts (Admin has no MPIN)
+    if (isAuthenticated.value && userRole.value !== 'ADMIN') {
+      isLocked.value = true;
+    }
+  }
+
+  function unlockTab() {
+    isLocked.value = false;
+  }
+
+  function clearSession() {
+    user.value = null;
+    accessToken.value = null;
+    refreshToken.value = null;
+    pendingMobile.value = '';
+    pendingOtpTicket.value = '';
+    isLocked.value = false;
+
+    localStorage.removeItem('user');
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+  }
+
+  return {
+    user,
+    accessToken,
+    refreshToken,
+    pendingMobile,
+    pendingOtpTicket,
+    isLocked,
+    isAuthenticated,
+    userRole,
+    setSession,
+    setPendingOtp,
+    lockTab,
+    unlockTab,
+    clearSession,
   };
+});
+```
 
-  return { isLocked, unlock };
+---
+
+### 5.5 TanStack Vue Query Auth Mutations (`src/composables/useAuthMutations.ts`)
+
+TanStack Query (`@tanstack/vue-query`) handles all async server state mutations, loading states, and error handling cleanly.
+
+```typescript
+import { useMutation } from '@tanstack/vue-query';
+import { useRouter } from 'vue-router';
+import api from '../api/client';
+import { useAuthStore } from '../stores/auth.store';
+import type {
+  RegisterPayload,
+  OtpRequestPayload,
+  OtpVerifyPayload,
+  OtpVerifyResponse,
+  MpinPayload,
+  AuthSuccessResponse,
+} from '../types/auth.types';
+
+export function useAuthMutations() {
+  const router = useRouter();
+  const authStore = useAuthStore();
+
+  // 1. Register Mutation
+  const registerMutation = useMutation({
+    mutationFn: async (payload: RegisterPayload) => {
+      const { data } = await api.post('/auth/register', payload);
+      return data;
+    },
+    onSuccess: (_, variables) => {
+      authStore.pendingMobile = variables.mobile;
+      router.push('/login');
+    },
+  });
+
+  // 2. Request OTP Mutation
+  const requestOtpMutation = useMutation({
+    mutationFn: async (payload: OtpRequestPayload) => {
+      const { data } = await api.post('/auth/otp/request', payload);
+      return data;
+    },
+  });
+
+  // 3. Verify OTP Mutation
+  const verifyOtpMutation = useMutation({
+    mutationFn: async (payload: OtpVerifyPayload): Promise<OtpVerifyResponse> => {
+      const { data } = await api.post('/auth/otp/verify', payload);
+      return data;
+    },
+    onSuccess: (data, variables) => {
+      // Admin bypasses MPIN directly
+      if (data.role === 'ADMIN' && data.user && data.accessToken && data.refreshToken) {
+        authStore.setSession(data.user, data.accessToken, data.refreshToken);
+        router.push('/admin');
+        return;
+      }
+
+      // Guest / Host navigation
+      if (data.otpTicket) {
+        authStore.setPendingOtp(variables.mobile, data.otpTicket);
+        if (data.status === 'SET_MPIN_REQUIRED') {
+          router.push('/set-mpin');
+        } else {
+          router.push('/enter-mpin');
+        }
+      }
+    },
+  });
+
+  // 4. Set First-time MPIN Mutation
+  const setMpinMutation = useMutation({
+    mutationFn: async (payload: MpinPayload): Promise<AuthSuccessResponse> => {
+      const { data } = await api.post('/auth/mpin/set', payload);
+      return data;
+    },
+    onSuccess: (data) => {
+      authStore.setSession(data.user, data.accessToken, data.refreshToken);
+      router.push(data.user.role === 'HOST' ? '/host/dashboard' : '/explore');
+    },
+  });
+
+  // 5. Verify MPIN Mutation
+  const verifyMpinMutation = useMutation({
+    mutationFn: async (payload: MpinPayload): Promise<AuthSuccessResponse> => {
+      const { data } = await api.post('/auth/mpin/verify', payload);
+      return data;
+    },
+    onSuccess: (data) => {
+      authStore.setSession(data.user, data.accessToken, data.refreshToken);
+      router.push(data.user.role === 'HOST' ? '/host/dashboard' : '/explore');
+    },
+  });
+
+  // 6. MPIN Tab-Unlock Mutation
+  const unlockMpinMutation = useMutation({
+    mutationFn: async (mpin: string) => {
+      const { data } = await api.post('/auth/mpin/unlock', { mpin });
+      return data;
+    },
+    onSuccess: () => {
+      authStore.unlockTab();
+    },
+  });
+
+  // 7. Logout Mutation
+  const logoutMutation = useMutation({
+    mutationFn: async () => {
+      const refreshToken = authStore.refreshToken;
+      await api.post('/auth/logout', { refreshToken });
+    },
+    onSettled: () => {
+      authStore.clearSession();
+      router.push('/login');
+    },
+  });
+
+  return {
+    registerMutation,
+    requestOtpMutation,
+    verifyOtpMutation,
+    setMpinMutation,
+    verifyMpinMutation,
+    unlockMpinMutation,
+    logoutMutation,
+  };
 }
 ```
 
 ---
 
-### 5.4 Tab-Lock Screen Overlay Component (`src/components/TabLockModal.tsx`)
+### 5.6 Tab-Lock Composable (`src/composables/useTabLock.ts`)
 
-```tsx
-import React, { useState } from 'react';
-import api from '../api/client';
+Listens to browser tab visibility and locks the screen without invalidating JWT tokens.
 
-interface Props {
-  onUnlocked: () => void;
-  onLogout: () => void;
-}
+```typescript
+import { onMounted, onUnmounted, ref } from 'vue';
+import { useAuthStore } from '../stores/auth.store';
 
-export const TabLockModal: React.FC<Props> = ({ onUnlocked, onLogout }) => {
-  const [mpin, setMpin] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+export function useTabLock() {
+  const authStore = useAuthStore();
+  const wasHidden = ref(false);
 
-  const handleUnlock = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (mpin.length !== 4) {
-      setError('Please enter your 4-digit MPIN');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-
-    try {
-      await api.post('/auth/mpin/unlock', { mpin });
-      onUnlocked();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Invalid MPIN');
-    } finally {
-      setLoading(false);
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') {
+      wasHidden.value = true;
+    } else if (document.visibilityState === 'visible' && wasHidden.value) {
+      authStore.lockTab();
+      wasHidden.value = false;
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl text-center">
-        <h2 className="text-xl font-bold text-gray-900">🔒 Screen Locked</h2>
-        <p className="mt-1 text-sm text-gray-500">Enter your 4-digit MPIN to resume session</p>
+  onMounted(() => {
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+  });
 
-        <form onSubmit={handleUnlock} className="mt-6">
-          <input
-            type="password"
-            maxLength={4}
-            value={mpin}
-            onChange={(e) => setMpin(e.target.value.replace(/\D/g, ''))}
-            className="w-40 text-center tracking-[1em] text-2xl font-bold border-2 border-gray-300 rounded-lg p-2 focus:border-blue-600 focus:outline-none"
-            placeholder="••••"
-            autoFocus
-          />
+  onUnmounted(() => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  });
+}
+```
 
-          {error && <p className="mt-2 text-sm text-red-600 font-medium">{error}</p>}
+---
 
-          <button
-            type="submit"
-            disabled={loading || mpin.length !== 4}
-            className="mt-6 w-full rounded-lg bg-blue-600 py-2.5 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? 'Unlocking...' : 'Unlock'}
-          </button>
-        </form>
+### 5.7 Tab-Lock Screen Overlay Component (`src/components/TabLockModal.vue`)
 
-        <button onClick={onLogout} className="mt-4 text-xs text-gray-400 hover:text-red-500 underline">
-          Log out instead
+Full-screen overlay rendered conditionally when `authStore.isLocked` is `true`.
+
+```vue
+<template>
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md">
+    <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl text-center">
+      <div class="text-4xl mb-2">🔒</div>
+      <h2 class="text-xl font-bold text-gray-900">Screen Locked</h2>
+      <p class="mt-1 text-sm text-gray-500">Enter your 4-digit MPIN to resume session</p>
+
+      <form @submit.prevent="handleUnlock" class="mt-6">
+        <input
+          type="password"
+          maxlength="4"
+          v-model="mpin"
+          @input="onMpinInput"
+          class="w-40 text-center tracking-[1em] text-2xl font-bold border-2 border-gray-300 rounded-lg p-2 focus:border-blue-600 focus:outline-none"
+          placeholder="••••"
+          autofocus
+        />
+
+        <p v-if="errorMessage" class="mt-2 text-sm text-red-600 font-medium">
+          {{ errorMessage }}
+        </p>
+
+        <button
+          type="submit"
+          :disabled="unlockMpinMutation.isPending.value || mpin.length !== 4"
+          class="mt-6 w-full rounded-lg bg-blue-600 py-2.5 font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition"
+        >
+          {{ unlockMpinMutation.isPending.value ? 'Unlocking...' : 'Unlock' }}
         </button>
-      </div>
+      </form>
+
+      <button
+        type="button"
+        @click="handleLogout"
+        class="mt-4 text-xs text-gray-400 hover:text-red-500 underline"
+      >
+        Log out instead
+      </button>
     </div>
-  );
-};
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref } from 'vue';
+import { useAuthMutations } from '../composables/useAuthMutations';
+
+const mpin = ref('');
+const errorMessage = ref('');
+const { unlockMpinMutation, logoutMutation } = useAuthMutations();
+
+function onMpinInput(e: Event) {
+  const target = e.target as HTMLInputElement;
+  mpin.value = target.value.replace(/\D/g, '');
+}
+
+async function handleUnlock() {
+  if (mpin.value.length !== 4) {
+    errorMessage.value = 'Please enter your 4-digit MPIN';
+    return;
+  }
+
+  errorMessage.value = '';
+  try {
+    await unlockMpinMutation.mutateAsync(mpin.value);
+    mpin.value = '';
+  } catch (err: any) {
+    errorMessage.value = err.response?.data?.message || 'Invalid MPIN';
+  }
+}
+
+function handleLogout() {
+  logoutMutation.mutate();
+}
+</script>
+```
+
+---
+
+### 5.8 Root Application Setup (`src/App.vue` & `src/main.ts`)
+
+#### `src/main.ts`
+```typescript
+import { createApp } from 'vue';
+import { createPinia } from 'pinia';
+import { VueQueryPlugin } from '@tanstack/vue-query';
+import App from './App.vue';
+import router from './router';
+import './style.css';
+
+const app = createApp(App);
+const pinia = createPinia();
+
+app.use(pinia);
+app.use(VueQueryPlugin);
+app.use(router);
+
+app.mount('#app');
+```
+
+#### `src/App.vue`
+```vue
+<template>
+  <div id="app" class="min-h-screen bg-gray-50 text-gray-900">
+    <router-view />
+    <!-- Global Tab-Lock Overlay -->
+    <TabLockModal v-if="authStore.isLocked" />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { useAuthStore } from './stores/auth.store';
+import { useTabLock } from './composables/useTabLock';
+import TabLockModal from './components/TabLockModal.vue';
+
+const authStore = useAuthStore();
+
+// Mount tab-lock listener globally
+useTabLock();
+</script>
 ```
 
 ---
@@ -588,6 +866,9 @@ Validation errors (`400 Bad Request`) return:
 
 ---
 
-## 🚀 7. Ready for Frontend Build!
+## 🚀 7. Summary of the Vue 3 + Pinia + Vue Query Architecture
 
-Everything on the backend is fully tested and functioning at `http://localhost:5000`. You can build your UI screens, connect the API client, and start testing immediately!
+- **Pinia** holds client session state: `user`, `accessToken`, `refreshToken`, `isLocked`, and `pendingOtpTicket`.
+- **TanStack Vue Query** manages server asynchronous requests: `useMutation` for register, OTP, MPIN, and unlock actions.
+- **Axios Interceptor** automatically refreshes expired access tokens in the background without user intervention.
+- **Vue Composable `useTabLock()`** monitors `document.visibilitychange` and triggers Pinia's `lockTab()` to display `TabLockModal.vue`.
