@@ -1,0 +1,3 @@
+  const router = require('./property.routes');                                                                                                                                                              
+                                                                                                                                                                                                              
+    module.exports = router; 

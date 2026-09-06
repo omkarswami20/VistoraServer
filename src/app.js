@@ -29,6 +29,7 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 app.use('/api/auth', require('./modules/auth'));
+app.use('/api/properties', require('./modules/properties'));
 
 
 app.get('/health', (req, res) => {

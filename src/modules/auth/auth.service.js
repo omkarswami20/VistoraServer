@@ -3,12 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const authRepository = require('./auth.repository');
 const { OTP_BY_ROLE } = require('../../utils/otp.constants');
-
-function createAppError(message, statusCode) {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-}
+const { createAppError } = require('../../utils/appError');
 
 function sanitizeUser(user) {
   if (!user) return null;

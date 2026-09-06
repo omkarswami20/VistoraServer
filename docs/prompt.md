@@ -48,23 +48,26 @@
   - OTP request was tested successfully for mobile `9876543210` as GUEST.
 
   Important current status:
-  Register ✅
-  OTP request ✅
-  OTP verify / is_verified update ✅
-  OTP ticket ⏳
-  MPIN set ⏳
-  JWT access + refresh tokens ⏳
-  Returning login with OTP + MPIN ⏳
-  MPIN unlock ⏳
+  - Phase 1: Setup + DB pool (PostgreSQL on Aiven) ✅
+  - Phase 2: Auth Module (OTP + MPIN full flow) ✅
+    - Register ✅
+    - OTP request & verify (with 2-min otpTicket) ✅
+    - MPIN set & verify (with bcrypt & JWT tokens) ✅
+    - Access token refresh via DB refresh token ✅
+    - Browser tab soft-lock /unlock ✅
+    - Logout session revocation ✅
+    - Admin direct login (no MPIN) ✅
+  - Phase 3: Property Management Module ✅
+    - Database migration (properties, property_images, amenities, property_amenities, availability) ✅
+    - Zod validation (createPropertySchema) ✅
+    - Raw SQL repository with ACID Transactions (createPropertyWithDetails, JSON_AGG queries) ✅
+    - Service & Controller with null checks, optional chaining (?.) and AppError ✅
+    - Routes: POST /api/properties, GET /api/properties, GET /api/properties/my-properties, GET /api/properties/:id ✅
+    - Mounted in app.js at /api/properties ✅
+    - Tested 100% end-to-end with demo Host account ✅
 
-  We stopped after OTP verification. The next correct task is to implement the PRD OTP-ticket flow, then first-time MPIN setup:
-  1. Create a short-lived 5-minute OTP ticket JWT after correct OTP verification.
-  2. Return status:
-     - `SET_MPIN_REQUIRED` if `mpin_hash` is null
-     - `ENTER_MPIN` if `mpin_hash` already exists
-  3. Build POST /api/auth/mpin/set.
-  4. Hash a 4-digit MPIN with bcrypt.
-  5. Save `mpin_hash` in users.
-  6. Only then issue access and refresh tokens.
-
-  Please begin by summarizing what you found in the actual code, identify any mismatch from this handoff, and then teach me the next smallest step.
+  Next Correct Tasks according to PRD:
+  - Phase 4: Search & Filters (GET /api/properties with query params: location, min_price, max_price, guests, date availability)
+  - Phase 5: Booking Core + State Machine (MySQL/Postgres transaction + status transitions: PENDING -> PAYMENT_PENDING -> CONFIRMED -> COMPLETED / CANCELLED)
+  - Phase 6: Redis concurrency locking
+  - Phase 7: Razorpay sandbox payments
