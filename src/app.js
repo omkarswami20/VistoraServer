@@ -15,7 +15,7 @@ app.use(
   cors({
     origin: (origin, callback) => {
       // allow requests with no origin (like mobile apps, curl, Postman)
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins?.includes?.(origin)) {
         return callback(null, true);
       }
       return callback(null, true); // Alternatively allow dynamically or handle whitelist
@@ -31,22 +31,21 @@ app.use(cookieParser());
 app.use('/api/auth', require('./modules/auth'));
 app.use('/api/properties', require('./modules/properties'));
 
-
 app.get('/health', (req, res) => {
   res.json({ message: 'API is running' });
 });
 
 app.get('/health/database', async (req, res, next) => {
   try {
-    const { rows } = await pool.query('SELECT NOW() AS connected_at');
-    res.json({ message: 'Database connected', connectedAt: rows[0].connected_at });
+    const { rows } = (await pool?.query?.('SELECT NOW() AS connected_at')) ?? { rows: [] };
+    res.json({ message: 'Database connected', connectedAt: rows?.[0]?.connected_at ?? null });
   } catch (error) {
     next(error);
   }
 });
 
 app.post('/testBody', (req, res) => {
-  res.json({ receivedData: req.body });
+  res.json({ receivedData: req?.body ?? null });
 });
 
 app.use(errorMiddleware);
