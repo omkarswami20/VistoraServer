@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 const certificatePath = path.join(__dirname, 'aiven-ca.pem');
 const useSsl = process.env.DB_SSL === 'true';
@@ -21,12 +21,8 @@ const pool = new Pool({
   ssl,
 });
 
-pool.on('connect', () => {
-  console.log('✅ New client connected to PostgreSQL pool');
-});
-
 pool.on('error', (err) => {
-  console.error('❌ Unexpected PostgreSQL pool error:', err.message);
+  console.error('❌ Unexpected PostgreSQL pool error:', err?.message ?? err);
 });
 
 module.exports = pool;
