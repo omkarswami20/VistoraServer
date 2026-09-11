@@ -31,40 +31,40 @@ async function createPropertyWithDetails(propertyData, images = [], amenityIds =
 
     const propertyId = newProperty.id;
 
-    // Step B: Agar Images bheji hain, toh unhe save karo
+    // Step B: Images bulk insert
     let savedImages = [];
-    if (Array.isArray(images) && images?.length > 0) {
-      for (const url of images) {
-        if (url) {
-          const imgRes = await client.query(
-            `INSERT INTO property_images (property_id, url) VALUES ($1, $2) RETURNING id, url;`,
-            [propertyId, url]
-          );
-          if (imgRes?.rows?.[0]) {
-            savedImages.push(imgRes.rows[0]);
-          }
-        }
-      }
+    const cleanImages = Array.isArray(images) ? images.filter(Boolean) : [];
+
+    if (cleanImages.length > 0) {
+      const imgRes = await client.query(
+        `INSERT INTO property_images (property_id, url)
+         SELECT $1, UNNEST($2::text[])
+         RETURNING id, url;`,
+        [propertyId, cleanImages]
+      );
+      savedImages = imgRes?.rows ?? [];
     }
 
-    // Step C: Agar Amenities select kiye hain, unhe link karo
+    // Step C: Amenities bulk insert + fetch
+    // NOTE: requires a UNIQUE constraint on (property_id, amenity_id) — see indexes section.
     let savedAmenities = [];
-    if (Array.isArray(amenityIds) && amenityIds?.length > 0) {
-      for (const amenityId of amenityIds) {
-        if (amenityId) {
-          await client.query(
-            `INSERT INTO property_amenities (property_id, amenity_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;`,
-            [propertyId, amenityId]
-          );
-        }
-      }
+    const cleanAmenityIds = Array.isArray(amenityIds)
+      ? [...new Set(amenityIds.filter(Boolean))]
+      : [];
 
+    if (cleanAmenityIds.length > 0) {
       const amenRes = await client.query(
-        `SELECT a.id, a.name 
+        `WITH inserted AS (
+           INSERT INTO property_amenities (property_id, amenity_id)
+           SELECT $1, UNNEST($2::int[])
+           ON CONFLICT (property_id, amenity_id) DO NOTHING
+         )
+         SELECT a.id, a.name
          FROM amenities a
-         JOIN property_amenities pa ON a.id = pa.amenity_id
-         WHERE pa.property_id = $1;`,
-        [propertyId]
+         INNER JOIN property_amenities pa ON pa.amenity_id = a.id
+         WHERE pa.property_id = $1
+         ORDER BY a.name ASC;`,
+        [propertyId, cleanAmenityIds]
       );
       savedAmenities = amenRes?.rows ?? [];
     }
@@ -73,33 +73,35 @@ async function createPropertyWithDetails(propertyData, images = [], amenityIds =
 
     return {
       ...(newProperty ?? {}),
-      images: savedImages ?? [],
-      amenities: savedAmenities ?? [],
+      images: savedImages,
+      amenities: savedAmenities,
     };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
   } finally {
-    client?.release?.();
+    client.release();
   }
 }
 
 // 2. Single property uski images, amenities aur host details ke sath dhoondna
+// DISTINCT is needed here because the double LEFT JOIN (images + amenities)
+// creates a cross-product of rows before aggregation.
 async function findPropertyById(propertyId) {
   const query = `
-    SELECT 
+    SELECT
       p.*,
       u.name AS host_name,
       u.email AS host_email,
       u.mobile AS host_mobile,
       COALESCE(
-        JSON_AGG(DISTINCT JSONB_BUILD_OBJECT('id', pi.id, 'url', pi.url)) 
-        FILTER (WHERE pi.id IS NOT NULL), 
+        JSON_AGG(DISTINCT JSONB_BUILD_OBJECT('id', pi.id, 'url', pi.url))
+        FILTER (WHERE pi.id IS NOT NULL),
         '[]'
       ) AS images,
       COALESCE(
-        JSON_AGG(DISTINCT JSONB_BUILD_OBJECT('id', a.id, 'name', a.name)) 
-        FILTER (WHERE a.id IS NOT NULL), 
+        JSON_AGG(DISTINCT JSONB_BUILD_OBJECT('id', a.id, 'name', a.name))
+        FILTER (WHERE a.id IS NOT NULL),
         '[]'
       ) AS amenities
     FROM properties p
@@ -116,13 +118,15 @@ async function findPropertyById(propertyId) {
 }
 
 // 3. Host ki apni saari properties list karna
+// Only one join (images) here, so no fan-out — DISTINCT isn't needed,
+// ORDER BY inside the aggregate keeps image order stable.
 async function findPropertiesByHostId(hostId) {
   const query = `
-    SELECT 
+    SELECT
       p.*,
       COALESCE(
-        JSON_AGG(DISTINCT JSONB_BUILD_OBJECT('id', pi.id, 'url', pi.url)) 
-        FILTER (WHERE pi.id IS NOT NULL), 
+        JSON_AGG(JSONB_BUILD_OBJECT('id', pi.id, 'url', pi.url) ORDER BY pi.id)
+        FILTER (WHERE pi.id IS NOT NULL),
         '[]'
       ) AS images
     FROM properties p
@@ -137,23 +141,39 @@ async function findPropertiesByHostId(hostId) {
 }
 
 // 4. Sabhi active properties list karna (Public search / browsing ke liye)
-async function findAllActiveProperties() {
+// Paginated, with limit/offset validated so bad input can't break the query
+// or let a caller pull the entire table in one request.
+async function findAllActiveProperties(limit = 20, offset = 0) {
+  const MAX_LIMIT = 100;
+
+  const parsedLimit = Number.parseInt(limit, 10);
+  const parsedOffset = Number.parseInt(offset, 10);
+
+  const safeLimit =
+    Number.isInteger(parsedLimit) && parsedLimit > 0
+      ? Math.min(parsedLimit, MAX_LIMIT)
+      : 20;
+
+  const safeOffset =
+    Number.isInteger(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
+
   const query = `
-    SELECT 
+    SELECT
       p.id, p.title, p.location, p.price_per_night, p.max_guests, p.created_at,
       COALESCE(
-        JSON_AGG(DISTINCT JSONB_BUILD_OBJECT('id', pi.id, 'url', pi.url)) 
-        FILTER (WHERE pi.id IS NOT NULL), 
+        JSON_AGG(JSONB_BUILD_OBJECT('id', pi.id, 'url', pi.url) ORDER BY pi.id)
+        FILTER (WHERE pi.id IS NOT NULL),
         '[]'
       ) AS images
     FROM properties p
     LEFT JOIN property_images pi ON p.id = pi.property_id
     WHERE p.is_active = TRUE
     GROUP BY p.id
-    ORDER BY p.created_at DESC;
+    ORDER BY p.created_at DESC
+    LIMIT $1 OFFSET $2;
   `;
 
-  const { rows } = await pool.query(query);
+  const { rows } = await pool.query(query, [safeLimit, safeOffset]);
   return rows ?? [];
 }
 
