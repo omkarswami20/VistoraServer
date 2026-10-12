@@ -1,265 +1,342 @@
-# Vistora — Complete System Flow, Code Architecture & Interview Guide
+# Vistora — Complete System Flow, Code Architecture & Comprehensive Interview Masterclass
 
-> **Document Scope:** Full Functional and Code-Wise Architecture for Vistora (Backend: `VistoraServer`)  
-> **Target Audience:** Omkar Swami (Node.js Full-Stack Developer Interview Preparation)  
-> **Tech Stack:** Node.js, Express, PostgreSQL (`pg`), Redis, Zod, bcrypt, JWT, Razorpay Sandbox  
+> **Document Scope:** Full Functional, Code-Wise Architecture, Deep-Dive Auth Guide & 25+ Interview Q&A  
+> **Target Role:** Node.js Full-Stack Developer (1–2 Years Experience)  
+> **Candidate:** Omkar Swami  
+> **Tech Stack:** Node.js, Express, PostgreSQL (`pg`), Redis, Zod, bcrypt, JWT, Axios, Vue 3, Razorpay Sandbox  
 
 ---
 
 ## Table of Contents
-1. [System Overview & Current Status](#1-system-overview--current-status)
-2. [Functional Flow (End-to-End User Journeys)](#2-functional-flow-end-to-end-user-journeys)
-   - [2.1 Authentication & Identity Flow (OTP + MPIN)](#21-authentication--identity-flow-otp--mpin)
-   - [2.2 Host Property Listing Journey](#22-host-property-listing-journey)
-   - [2.3 Guest Search & Browsing Journey](#23-guest-search--browsing-journey)
-   - [2.4 Guest Booking Reservation Journey](#24-guest-booking-reservation-journey)
-   - [2.5 Payment & Confirmation Journey](#25-payment--confirmation-journey)
-   - [2.6 Admin Moderation Journey](#26-admin-moderation-journey)
-3. [The Booking State Machine](#3-the-booking-state-machine)
-4. [Concurrency Control: Redis Lock vs SQL Transaction](#4-concurrency-control-redis-lock-vs-sql-transaction)
+1. [The "Interview Trap" Breakdown: Authentication vs Authorization & JWT Lifecycle](#1-the-interview-trap-breakdown-authentication-vs-authorization--jwt-lifecycle)
+   - [1.1 Authentication vs Authorization (Never Get Confused Again)](#11-authentication-vs-authorization-never-get-confused-again)
+   - [1.2 "Where is JWT Handled? Frontend or Backend?" (The Trap Question Solved)](#12-where-is-jwt-handled-frontend-or-backend-the-trap-question-solved)
+   - [1.3 JWT Anatomy & Why Base64 is NOT Encryption](#13-jwt-anatomy--why-base64-is-not-encryption)
+   - [1.4 Where to Store Tokens? localStorage vs httpOnly Cookie vs Memory](#14-where-to-store-tokens-localstorage-vs-httponly-cookie-vs-memory)
+   - [1.5 How Frontend Handles Silent Refresh: The Axios Queue Pattern](#15-how-frontend-handles-silent-refresh-the-axios-queue-pattern)
+2. [Vistora's Multi-Auth Architecture (6-Tier Security Engine)](#2-vistoras-multi-auth-architecture-6-tier-security-engine)
+   - [2.1 Layer 1: Phone-First Identity & Role OTP](#21-layer-1-phone-first-identity--role-otp)
+   - [2.2 Layer 2: The 2-Minute Signed `otpTicket` Bridge](#22-layer-2-the-2-minute-signed-otpticket-bridge)
+   - [2.3 Layer 3: 4-Digit MPIN Hashing with bcrypt](#23-layer-3-4-digit-mpin-hashing-with-bcrypt)
+   - [2.4 Layer 4: Dual-Token Session (15m Access JWT + 7d DB Refresh Token)](#24-layer-4-dual-token-session-15m-access-jwt--7d-db-refresh-token)
+   - [2.5 Layer 5: Soft Tab-Lock Re-authorization (Page Visibility API)](#25-layer-5-soft-tab-lock-re-authorization-page-visibility-api)
+   - [2.6 Layer 6: Real-Time User Suspension Check in Middleware](#26-layer-6-real-time-user-suspension-check-in-middleware)
+3. [End-to-End Functional Flows (User Journeys)](#3-end-to-end-functional-flows-user-journeys)
+   - [3.1 Guest & Host Passwordless Authentication Flow](#31-guest--host-passwordless-authentication-flow)
+   - [3.2 Host Property Listing Flow (Atomic ACID Transaction)](#32-host-property-listing-flow-atomic-acid-transaction)
+   - [3.3 Guest Search & Discovery Flow](#33-guest-search--discovery-flow)
+   - [3.4 Guest Booking Reservation Flow](#34-guest-booking-reservation-flow)
+   - [3.5 Payment & State Machine Confirmation Flow](#35-payment--state-machine-confirmation-flow)
+4. [Booking State Machine & Concurrency Control](#4-booking-state-machine--concurrency-control)
+   - [4.1 Strict Booking State Transitions](#41-strict-booking-state-transitions)
+   - [4.2 Two-Tier Concurrency: Redis Mutex vs PostgreSQL Row Locks](#42-two-tier-concurrency-redis-mutex-vs-postgresql-row-locks)
 5. [Code-Wise Architecture: The 5-Layer Pattern](#5-code-wise-architecture-the-5-layer-pattern)
-   - [5.1 The 5 Architectural Layers](#51-the-5-architectural-layers)
+   - [5.1 Layer Responsibilities & Strict Rules](#51-layer-responsibilities--strict-rules)
    - [5.2 Complete Request Lifecycle Trace (`POST /api/properties`)](#52-complete-request-lifecycle-trace-post-apiproperties)
 6. [Database Schema & Advanced SQL Engine](#6-database-schema--advanced-sql-engine)
    - [6.1 Entity-Relationship Diagram](#61-entity-relationship-diagram)
-   - [6.2 Advanced SQL Patterns Used in Vistora](#62-advanced-sql-patterns-used-in-vistora)
-7. [10 Killer Spoken Answers for the Interview](#7-10-killer-spoken-answers-for-the-interview)
-8. [Backend Completion Blueprint (Next Steps)](#8-backend-completion-blueprint-next-steps)
+   - [6.2 Advanced SQL Techniques Used in Vistora](#62-advanced-sql-techniques-used-in-vistora)
+7. [Comprehensive Interview Masterclass: 25+ Technical Q&A](#7-comprehensive-interview-masterclass-25-technical-qa)
+   - [Category A: Core Full-Stack & Web Fundamentals (Q1–Q6)](#category-a-core-full-stack--web-fundamentals-q1q6)
+   - [Category B: Authentication, JWT & Security Deep-Dive (Q7–Q14)](#category-b-authentication-jwt--security-deep-dive-q7q14)
+   - [Category C: Node.js, Express & Architecture (Q15–Q19)](#category-c-nodejs-express--architecture-q15q19)
+   - [Category D: PostgreSQL, Raw SQL & Concurrency (Q20–Q25)](#category-d-postgresql-raw-sql--concurrency-q20q25)
+8. [Backend Completion Blueprint (Next Action Steps)](#8-backend-completion-blueprint-next-action-steps)
 
 ---
 
-# 1. System Overview & Current Status
+# 1. The "Interview Trap" Breakdown: Authentication vs Authorization & JWT Lifecycle
 
-Vistora is a production-grade property rental and booking platform engineered to prove deep Node.js backend capabilities:
-- **Zero ORM:** Raw parameterized SQL queries using PostgreSQL (`pg` pool) for full control over transactions and performance.
-- **Custom Passwordless Auth:** Phone-number identity + OTP verification + 4-digit MPIN hashing.
-- **ACID Transactions:** Multi-table writes (Properties + Images + Amenities) committed atomically.
-- **Concurrency Control:** Two-tier mutual exclusion (Redis TTL distributed locks + PostgreSQL row-level locks).
-- **Strict Layering:** Routes $\to$ Zod Validation Middleware $\to$ Controllers $\to$ Services $\to$ Repositories.
-
-### Implementation Checklist
-
-| Phase / Feature | Status | Primary Code Files | Notes |
-|---|:---:|---|---|
-| **Phase 1: Database Setup** | **DONE** | [`src/server.js`](file:///O:/projects/VistoraServer/src/server.js), [`src/config/db.js`](file:///O:/projects/VistoraServer/src/config/db.js) | Aiven Cloud PostgreSQL connection pool with SSL handling |
-| **Phase 2: Auth (OTP + MPIN)** | **DONE** | [`src/modules/auth/`](file:///O:/projects/VistoraServer/src/modules/auth/) | Register, OTP dispatch, 2-min `otpTicket`, MPIN set/verify, 15-m JWT access, 7-d DB refresh token, tab-lock unlock |
-| **Phase 3: Property Management** | **DONE** | [`src/modules/properties/`](file:///O:/projects/VistoraServer/src/modules/properties/) | Create property via ACID transaction, `UNNEST` images, CTE amenities, get by ID via `JSON_AGG`, host listings |
-| **Phase 4: Search & Filters** | ⏳ **NEXT** | `src/modules/properties/` | Dynamic SQL builder for `location`, `price_range`, `guests`, `check_in/out` availability |
-| **Phase 5: Booking Core + State Machine** | ⏳ **NEXT** | `src/modules/bookings/` | Migration for `bookings` table, date overlap query (`FOR UPDATE`), status state machine |
-| **Phase 6: Redis Concurrency Locks** | ⏳ **NEXT** | `src/config/redis.js`, `src/modules/bookings/` | Redis key mutex (`SET ... NX EX 600`) to block double-booking race conditions |
-| **Phase 7: Razorpay Sandbox Payments** | ⏳ **NEXT** | `src/modules/payments/` | Order creation, HMAC-SHA256 signature verification, booking transition to `CONFIRMED` |
+> [!IMPORTANT]
+> This section is specifically created to ensure you **never get stuck or tongue-tied** when an interviewer drills you on Authentication, Authorization, or the JWT lifecycle.
 
 ---
 
-# 2. Functional Flow (End-to-End User Journeys)
+## 1.1 Authentication vs Authorization (Never Get Confused Again)
 
-```mermaid
-flowchart TD
-    subgraph AuthJourney["1. Passwordless Auth Journey"]
-        A["Mobile Registration"] --> B["Request OTP"]
-        B --> C["Verify OTP"]
-        C --> D{"Role?"}
-        D -- "Admin" --> E["Direct Access + Refresh Tokens"]
-        D -- "Guest / Host" --> F["Signed 2-min otpTicket"]
-        F --> G{"MPIN Set?"}
-        G -- "No" --> H["Set MPIN (bcrypt)"]
-        G -- "Yes" --> I["Verify MPIN"]
-        H --> J["Access Token (15m) + Refresh Token (7d)"]
-        I --> J
-    end
+Interviewers love testing whether a 1-year developer truly understands the difference or just uses the words interchangeably.
 
-    subgraph HostJourney["2. Host Listing Journey"]
-        J -- "Role: HOST" --> K["Submit Property Details + Images + Amenities"]
-        K --> L["ACID Transaction (BEGIN ... COMMIT)"]
-        L --> M["Active Listing Live on Platform"]
-        M --> N["Host Receives Booking Requests"]
-    end
-
-    subgraph GuestJourney["3. Guest Booking & Payment Journey"]
-        J -- "Role: GUEST" --> O["Browse / Search Listings (Location, Price, Dates)"]
-        O --> P["Select Dates & Request Booking"]
-        P --> Q["Redis Lock Acquired (NX EX 600)"]
-        Q --> R["PostgreSQL Overlap Check (FOR UPDATE)"]
-        R --> S["Booking Created: Status = PENDING"]
-        S --> T["Host Accepts Booking -> PAYMENT_PENDING"]
-        T --> U["Razorpay Order Created"]
-        U --> V["Payment Success -> Signature Verified"]
-        V --> W["Booking Status -> CONFIRMED"]
-        W --> X["Release Redis Lock"]
-    end
+```
+┌────────────────────────────────────────────────────────┐
+│                      AUTHENTICATION                    │
+│                 "WHO ARE YOU?" (Identity)              │
+│  - User submits Mobile + OTP + MPIN                    │
+│  - System checks identity in database                  │
+│  - Status code on failure: 401 Unauthorized            │
+└───────────────────────────┬────────────────────────────┘
+                            │ Identity verified! Token issued.
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│                      AUTHORIZATION                     │
+│                "WHAT CAN YOU DO?" (Permissions)        │
+│  - Verified User attempts to POST /api/properties      │
+│  - System checks: Does user.role == 'HOST'?            │
+│  - Status code on failure: 403 Forbidden               │
+└────────────────────────────────────────────────────────┘
 ```
 
+### The Real-World Airport Analogy (Use This in Your Interview!)
+> *"Think of an airport:  
+> 1. **Authentication** is at the entrance security gate where you show your Passport and Aadhaar Card. The guard verifies: 'Yes, you are Omkar Swami.' You have proven **who you are**.  
+> 2. **Authorization** is at the Cockpit door. You show your economy-class boarding pass. The flight attendant stops you: 'We know you are Omkar, but you are not authorized to enter the cockpit.' You have identity, but **lack permission**."*
+
+### HTTP Status Code Distinction
+| Status Code | Standard Name | What It Actually Means | When Vistora Returns It |
+|---|---|---|---|
+| **401** | `Unauthorized` | *"You are not authenticated / Your token is missing or expired."* | Missing Bearer token in [`auth.middleware.js`](file:///O:/projects/VistoraServer/src/middleware/auth.middleware.js#L8-L12), invalid JWT, or expired token. |
+| **403** | `Forbidden` | *"We know who you are, but you don't have permission for this resource."* | Guest tries to call [`POST /api/properties`](file:///O:/projects/VistoraServer/src/modules/properties/property.routes.js#L26-L33) (guarded by `requireRole(['HOST'])`), or user is suspended (`is_suspended: true`). |
+
 ---
 
-## 2.1 Authentication & Identity Flow (OTP + MPIN)
+## 1.2 "Where is JWT Handled? Frontend or Backend?" (The Trap Question Solved)
 
-Unlike traditional platforms using emails and passwords, Vistora uses a **fintech-inspired phone identity model**.
+### The Interviewer's Trap
+- If you answer: *"It's handled on the backend"*, they will say: *"Then what does frontend do? Doesn't frontend store and send it?"*
+- If you answer: *"It's handled on the frontend"*, they will say: *"Can the frontend create or verify the cryptographic signature? No! Anyone could fake it!"*
+
+### The Perfect Senior Answer (Say This Word-for-Word):
+> *"JWT is a **collaborative client-server handshake** with strictly divided responsibilities:  
+> - The **Backend is the Cryptographic Authority**: It signs the token using a private `JWT_SECRET`, defines the payload and expiration, cryptographically verifies incoming signatures, checks user revocation against the database, and issues new tokens.  
+> - The **Frontend is the Bearer & Session Manager**: It securely receives the token, stores it, automatically injects it into every outgoing request's `Authorization: Bearer` header, listens for 401 expiration responses via Axios interceptors, triggers silent refresh calls, and purges the token upon logout."*
+
+### Side-by-Side Comparison: Backend vs Frontend Responsibilities
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as Guest / Host
-    participant API as Express API (/api/auth)
+    actor User as User
+    participant FE as Frontend (Vue / React / Axios)
+    participant BE as Backend (Express + jsonwebtoken)
     participant DB as PostgreSQL DB
 
-    Note over User,DB: Step 1: Request OTP
-    User->>API: POST /api/auth/otp/request { mobile: "9000000002" }
-    API->>DB: SELECT * FROM users WHERE mobile = $1
-    DB-->>API: Returns user record (role: GUEST)
-    API-->>User: 200 OK { otpSent: true, role: "GUEST" }
+    Note over FE,BE: Phase 1: Creation & Issuance (Backend = Authority)
+    User->>FE: Enters Mobile + MPIN
+    FE->>BE: POST /api/auth/mpin/verify
+    BE->>DB: Validates credentials
+    BE->>BE: jwt.sign(payload, JWT_SECRET, { expiresIn: '15m' })
+    BE-->>FE: Returns { accessToken, refreshToken }
 
-    Note over User,DB: Step 2: Verify OTP
-    User->>API: POST /api/auth/otp/verify { mobile: "9000000002", otp: "999999" }
-    API->>API: Compares with OTP_BY_ROLE['GUEST']
-    API->>DB: UPDATE users SET is_verified = TRUE WHERE id = $1
-    API->>API: Signs otpTicket (JWT valid for 2 minutes)
-    API-->>User: 200 OK { status: "ENTER_MPIN", otpTicket: "eyJ..." }
+    Note over FE,BE: Phase 2: Storage & Injection (Frontend = Bearer)
+    FE->>FE: Stores accessToken in memory / localStorage
+    FE->>FE: Axios Request Interceptor attaches: Authorization: Bearer <token>
+    FE->>BE: GET /api/properties/my-properties
 
-    Note over User,DB: Step 3: MPIN Authorization
-    User->>API: POST /api/auth/mpin/verify { mobile, otpTicket, mpin: "1234" }
-    API->>API: Validates otpTicket signature & purpose == 'OTP_VERIFIED'
-    API->>DB: SELECT mpin_hash FROM users WHERE mobile = $1
-    API->>API: bcrypt.compare("1234", user.mpin_hash)
-    API->>DB: INSERT INTO refresh_tokens (user_id, token, expires_at)
-    API-->>User: 200 OK { accessToken: "15m JWT", refreshToken: "7d JWT", user }
+    Note over FE,BE: Phase 3: Cryptographic Verification (Backend = Gatekeeper)
+    BE->>BE: jwt.verify(token, JWT_SECRET)
+    BE->>DB: Checks if user.is_suspended == true
+    BE-->>FE: 200 OK with property data
 
-    Note over User,DB: Step 4: Silent Session Refresh
-    User->>API: POST /api/auth/refresh { refreshToken: "7d JWT" }
-    API->>DB: SELECT * FROM refresh_tokens WHERE token = $1
-    API->>DB: SELECT is_suspended FROM users WHERE id = $1
-    API-->>User: 200 OK { accessToken: "New 15m JWT" }
-
-    Note over User,DB: Step 5: Soft Tab-Lock Re-authorization
-    User->>API: POST /api/auth/mpin/unlock { mpin: "1234" } (Header: Bearer Access Token)
-    API->>API: authMiddleware verifies active JWT
-    API->>API: bcrypt.compare("1234", user.mpin_hash)
-    API-->>User: 200 OK { unlocked: true }
-```
-
-### Key Security Guardrails
-1. **The 2-Minute `otpTicket`:** An attacker cannot jump straight to `/api/auth/mpin/verify` to brute-force a 4-digit PIN. The endpoint requires a cryptographically signed ticket proving the client verified the OTP within the last 120 seconds.
-2. **Dual-Token Lifetime:**
-   - **Access Token:** Lives for **15 minutes**. Sent in `Authorization: Bearer <token>`.
-   - **Refresh Token:** Lives for **7 days**. Stored server-side in `refresh_tokens` so it can be revoked instantly on logout or account suspension.
-3. **Soft Tab-Lock:** When a user switches tabs, the browser Page Visibility API activates a lock overlay. Calling `POST /api/auth/mpin/unlock` re-validates the MPIN using the active access token **without regenerating session tokens**, keeping pending network operations uninterrupted.
-
----
-
-## 2.2 Host Property Listing Journey
-
-```
-Host Logs In (Role: HOST)
-   │
-   ▼
-Submits Listing Form:
-- Title, Description, Location, Price per Night, Max Guests
-- Image URLs Array: ["https://...1.jpg", "https://...2.jpg"]
-- Amenity IDs Array: [1, 3, 5]
-   │
-   ▼
-[POST /api/properties]
-   ├── 1. auth.middleware: Verifies token & active status
-   ├── 2. role.middleware: Restricts to ['HOST']
-   ├── 3. validate.middleware: Zod validates data types & bounds
-   └── 4. Atomic PostgreSQL Transaction:
-          BEGIN;
-          INSERT INTO properties (...) RETURNING id;
-          INSERT INTO property_images (property_id, url) SELECT $1, UNNEST($2::text[]);
-          WITH inserted AS (
-            INSERT INTO property_amenities (property_id, amenity_id)
-            SELECT $1, UNNEST($2::int[])
-            ON CONFLICT (property_id, amenity_id) DO NOTHING
-          ) SELECT a.id, a.name FROM amenities a ... WHERE pa.property_id = $1;
-          COMMIT;
-   │
-   ▼
-Listing Live! Host can view under GET /api/properties/my-properties
+    Note over FE,BE: Phase 4: Expiration & Silent Refresh (Collaborative Handshake)
+    FE->>BE: Request with expired 15-min token
+    BE-->>FE: 401 Unauthorized (TokenExpiredError)
+    FE->>FE: Axios Response Interceptor catches 401, pauses queue
+    FE->>BE: POST /api/auth/refresh { refreshToken }
+    BE->>DB: Checks token in refresh_tokens table
+    BE-->>FE: Returns new 15m accessToken
+    FE->>BE: Retries original request with new token!
 ```
 
 ---
 
-## 2.3 Guest Search & Browsing Journey
+## 1.3 JWT Anatomy & Why Base64 is NOT Encryption
 
-1. **Public Catalog (`GET /api/properties`)**:
-   - Guests can browse all active properties without logging in.
-   - Database queries use safe pagination (`limit`, `offset`) to prevent memory exhaustion.
-2. **Search & Filters (`GET /api/properties?location=Goa&min_price=2000&max_price=8000&guests=2`)**:
-   - Location matches using case-insensitive partial search: `WHERE location ILIKE $1`.
-   - Price range checks: `AND price_per_night BETWEEN $2 AND $3`.
-   - Capacity checks: `AND max_guests >= $4`.
-3. **Detailed View (`GET /api/properties/:id`)**:
-   - Fetches property metadata, host contact details, and aggregated arrays of images and amenities in a single SQL query using `JSON_AGG(DISTINCT ...)`.
+An interviewer might ask: *"Is the JWT payload encrypted? Can a hacker read the data inside it?"*
 
----
+### The Answer:
+> *"No, a standard JWT is **signed**, not encrypted. It uses Base64Url encoding, which is plain text and can be decoded by anyone on `jwt.io` without a secret. What makes JWT secure is the **Signature**."*
 
-## 2.4 Guest Booking Reservation Journey
+A JWT has three parts separated by dots (`.`):
+$$\underbrace{\text{eyJhbGciOi...}}_{\text{Header}} \ . \ \underbrace{\text{eyJ1c2VySW...}}_{\text{Payload}} \ . \ \underbrace{\text{TJVA95OrM7...}}_{\text{Signature}}$$
 
-1. **Date Selection**: Guest chooses check-in and check-out dates along with guest count.
-2. **Concurrency Check Tier 1 (Redis)**:
-   - System attempts to set a distributed mutex in Redis with a 10-minute TTL.
-   - If key already exists, returns `409 Conflict` (*"Dates are temporarily held by another guest"*).
-3. **Concurrency Check Tier 2 (PostgreSQL Transaction)**:
-   - Queries `bookings` table with `FOR UPDATE` to ensure no conflicting booking exists for the same dates in `CONFIRMED` or `PAYMENT_PENDING` status.
-4. **Booking Insertion**:
-   - Creates booking record with initial status: **`PENDING`**.
-5. **Host Acceptance**:
-   - Host reviews request and accepts: booking transitions from **`PENDING`** $\to$ **`PAYMENT_PENDING`**.
+1. **Header:** Algorithm and token type (e.g., `{"alg": "HS256", "typ": "JWT"}`).
+2. **Payload (Claims):** Data claims (e.g., `{"userId": 7, "role": "HOST", "exp": 1729000000}`).
+   > [!CAUTION]
+   > **Never store sensitive data (passwords, MPINs, card numbers) inside a JWT payload**, because anyone who intercepts the token can read it.
+3. **Signature:** Calculated using the server's private secret:
+   $$\text{HMACSHA256}(\text{base64UrlEncode}(\text{Header}) + "." + \text{base64UrlEncode}(\text{Payload}), \ \text{JWT\_SECRET})$$
+   If an attacker changes `"role": "GUEST"` to `"role": "ADMIN"` in the payload, the signature verification fails because the attacker doesn't possess `JWT_SECRET`.
 
 ---
 
-## 2.5 Payment & Confirmation Journey
+## 1.4 Where to Store Tokens? localStorage vs httpOnly Cookie vs Memory
 
-1. **Razorpay Order Creation (`POST /api/payments/create-order`)**:
-   - Backend calls Razorpay API to generate an order ID with amount in paise (`total_price * 100`).
-2. **Checkout Modal**:
-   - Frontend opens Razorpay test checkout modal.
-3. **Signature Verification (`POST /api/payments/verify`)**:
-   - Backend computes HMAC-SHA256 signature:
-     $$\text{expectedSignature} = \text{HMAC-SHA256}(\text{order\_id} + "|" + \text{payment\_id}, \text{RAZORPAY\_SECRET})$$
-   - If valid:
-     - Payment record marked as `SUCCESS`.
-     - Booking status transitions to **`CONFIRMED`**.
-     - Redis lock is released.
-   - If payment fails or times out:
-     - Booking transitions to **`CANCELLED`**.
-     - Redis lock is released.
+| Storage Location | XSS Vulnerability | CSRF Vulnerability | Persistence on Refresh | Best Practice Evaluation |
+|---|---|---|---|---|
+| **`localStorage`** | ❌ **High Risk** (Any malicious JS script can read `localStorage.getItem()`) | ✅ **Immune** (Browsers never send it automatically) | ✅ Persists across tabs and reloads | Common in MVPs & decoupled mobile clients; requires strict CSP. |
+| **`httpOnly Cookie`** | ✅ **Immune to JS** (`document.cookie` cannot read it) | ⚠️ **Vulnerable** (Browser attaches cookie automatically on cross-site requests) | ✅ Persists | **Gold Standard** when paired with `SameSite=Strict` and CSRF protection tokens. |
+| **In-Memory (React / Pinia state)** | ✅ **Safe** (Not accessible via storage APIs) | ✅ **Immune** | ❌ Lost on page refresh (needs silent refresh on mount) | Most secure for Access Tokens, paired with an httpOnly Refresh Cookie. |
 
 ---
 
-## 2.6 Admin Moderation Journey
+## 1.5 How Frontend Handles Silent Refresh: The Axios Queue Pattern
 
-- **Direct Login**: Admin mobile `9000000000` + OTP `55555` directly issues session tokens without requiring an MPIN.
-- **User Suspension**: Admin can toggle `is_suspended = true` on any bad actor.
-  > [!IMPORTANT]
-  > Because `authMiddleware` queries PostgreSQL (`findUserById`) on every single authenticated request, suspended users are blocked **in real time**, without waiting for their 15-minute access token to expire.
-- **Listing Deactivation**: Admin can set `is_active = false` on properties violating platform terms.
+A common production challenge: What happens when 5 API calls fire at the same time and the access token has just expired? You cannot make 5 simultaneous refresh calls!
+
+```mermaid
+flowchart TD
+    A["API Calls #1, #2, #3 fire simultaneously"] --> B["All return HTTP 401 Unauthorized"]
+    B --> C{"Is Token Refresh already in progress?"}
+    
+    C -- "Call #1 arrives first: isRefreshing = false" --> D["Set isRefreshing = true<br/>Call POST /api/auth/refresh"]
+    C -- "Calls #2 & #3 arrive: isRefreshing = true" --> E["Push request resolvers into failedQueue array<br/>Wait for Call #1 to complete"]
+    
+    D --> F{"Refresh API Success?"}
+    F -- "YES" --> G["Update Access Token in Storage<br/>Resolve all queued requests in failedQueue<br/>Retry Call #1, #2, #3 seamlessly!"]
+    F -- "NO" --> H["Clear storage, redirect user to /login"]
+```
 
 ---
 
-# 3. The Booking State Machine
+# 2. Vistora's Multi-Auth Architecture (6-Tier Security Engine)
 
-Booking state transitions must be strictly managed to prevent invalid business operations (e.g., paying for an already cancelled booking).
+Vistora does not use a single "login" endpoint. It implements a layered, fintech-grade security pipeline:
+
+```
+[User Identity: Mobile Number]
+           │
+           ▼
+[Tier 1: OTP Layer]           POST /api/auth/otp/request & /otp/verify
+           │                  (Validates phone ownership, updates is_verified = true)
+           ▼
+[Tier 2: Bridge Token]        Issues 2-Minute Signed otpTicket JWT
+           │                  (Cryptographically locks client to next step)
+           ▼
+[Tier 3: MPIN Layer]          POST /api/auth/mpin/set & /mpin/verify
+           │                  (bcrypt 10 salt rounds; validates otpTicket)
+           ▼
+[Tier 4: Dual-Session Tokens] Issues: 15-min Access Token + 7-day DB Refresh Token
+           │                  (Access in Header, Refresh revocable in PostgreSQL)
+           ▼
+[Tier 5: Soft Tab-Lock]       POST /api/auth/mpin/unlock
+           │                  (Gated by Page Visibility API; re-checks MPIN in-session)
+           ▼
+[Tier 6: Real-Time Gate]      authMiddleware + requireRole(['HOST'])
+                              (Queries DB on every request to block suspended users)
+```
+
+---
+
+## 2.1 Layer 1: Phone-First Identity & Role OTP
+- Identity is anchored to a mobile number (`mobile VARCHAR(15) UNIQUE`).
+- OTP values are hardcoded per role in development:
+  - **Guest:** `999999`
+  - **Host:** `118899`
+  - **Admin:** `55555`
+- **Interview Defense:** *"Real SMS delivery (Twilio / AWS SNS) is deliberately abstracted behind a clean provider function in `auth.service.js`. Swapping the mock table for an SMS provider requires changing one function without touching any controllers or routes."*
+
+## 2.2 Layer 2: The 2-Minute Signed `otpTicket` Bridge
+- Generated in [`auth.service.js`](file:///O:/projects/VistoraServer/src/modules/auth/auth.service.js#L158-L167):
+  ```javascript
+  const otpTicket = jwt.sign(
+    { userId: user.id, mobile: user.mobile, role: user.role, purpose: 'OTP_VERIFIED' },
+    process.env.JWT_SECRET,
+    { expiresIn: '2m' }
+  );
+  ```
+- **Why this exists:** Prevents attackers from brute-forcing 4-digit PINs directly against `/api/auth/mpin/verify`. You cannot touch the MPIN endpoint without a valid ticket signed within the last 120 seconds.
+
+## 2.3 Layer 3: 4-Digit MPIN Hashing with bcrypt
+- 4-digit MPIN is hashed using **bcrypt with 10 salt rounds**.
+- Stored as `mpin_hash VARCHAR(255)` in PostgreSQL.
+- Plaintext MPIN is never logged, never cached, and never returned in API responses.
+
+## 2.4 Layer 4: Dual-Token Session (15m Access JWT + 7d DB Refresh Token)
+- **Access Token:** 15-minute lifespan. Fast, stateless verification in memory.
+- **Refresh Token:** 7-day lifespan. Persisted in PostgreSQL table `refresh_tokens`.
+- **Revocation on Logout:** Calling `POST /api/auth/logout` deletes the refresh token record from the database, preventing session reuse.
+
+## 2.5 Layer 5: Soft Tab-Lock Re-authorization (Page Visibility API)
+- When the user minimizes or navigates away from the browser tab, the frontend detects `document.visibilityState === 'hidden'`.
+- On return, an MPIN prompt overlay covers the app.
+- Calling `POST /api/auth/mpin/unlock` verifies the MPIN against the already-authenticated user session without issuing new tokens or disturbing in-flight network requests.
+
+## 2.6 Layer 6: Real-Time User Suspension Check in Middleware
+- In pure stateless JWTs, a suspended user can make calls until the token expires (15 minutes).
+- In Vistora's [`auth.middleware.js`](file:///O:/projects/VistoraServer/src/middleware/auth.middleware.js#L36-L48):
+  ```javascript
+  const user = await authRepository.findUserById(decoded.userId);
+  if (user.is_suspended) {
+    return res.status(403).json({ message: 'This account has been suspended' });
+  }
+  ```
+- Suspension takes effect **instantly on the very next HTTP request**.
+
+---
+
+# 3. End-to-End Functional Flows (User Journeys)
+
+```mermaid
+flowchart LR
+    subgraph HostFlow["Host Journey"]
+        H1["Login (OTP + MPIN)"] --> H2["Create Listing (Images + Amenities)"]
+        H2 --> H3["Atomic DB Transaction"]
+        H3 --> H4["Accept / Reject Bookings"]
+    end
+
+    subgraph GuestFlow["Guest Journey"]
+        G1["Search Listings (Filters)"] --> G2["Select Dates"]
+        G2 --> G3["Acquire Redis Lock"]
+        G3 --> G4["Book (PENDING)"]
+        G4 --> G5["Pay Razorpay Sandbox"]
+        G5 --> G6["Status: CONFIRMED"]
+    end
+```
+
+### 3.1 Guest & Host Passwordless Authentication Flow
+1. User enters mobile number $\to$ backend checks existence $\to$ OTP logged in terminal.
+2. User enters OTP $\to$ backend marks `is_verified = true` $\to$ issues 2-min `otpTicket`.
+3. First-time user calls `/api/auth/mpin/set` $\to$ sets 4-digit PIN $\to$ receives Access + Refresh tokens.
+4. Returning user calls `/api/auth/mpin/verify` $\to$ verifies PIN $\to$ receives Access + Refresh tokens.
+
+### 3.2 Host Property Listing Flow (Atomic ACID Transaction)
+- Host submits title, description, location, price, max guests, image URLs array, and amenity IDs array.
+- Database executes multi-table transaction in [`property.repository.js`](file:///O:/projects/VistoraServer/src/modules/properties/property.repository.js#L4-L85):
+  - `INSERT INTO properties` $\to$ returns new property ID.
+  - Bulk inserts images using `UNNEST($2::text[])`.
+  - Bulk inserts amenities using CTE `WITH inserted AS (...) SELECT ...`.
+  - `COMMIT` on success, `ROLLBACK` on any error.
+
+### 3.3 Guest Search & Discovery Flow
+- Public browsing via `GET /api/properties`.
+- Supports query params: `location`, `min_price`, `max_price`, `guests`, `check_in`, `check_out`.
+- Detailed view via `GET /api/properties/:id` aggregates images and amenities using PostgreSQL `JSON_AGG(DISTINCT ...)`.
+
+### 3.4 Guest Booking Reservation Flow
+- Guest selects check-in and check-out dates.
+- Redis lock is acquired for the property and date range for 10 minutes (`EX 600 NX`).
+- PostgreSQL query checks for conflicting bookings in `CONFIRMED` or `PAYMENT_PENDING` status using row-level locking (`FOR UPDATE`).
+- Booking is created with initial status `PENDING`.
+
+### 3.5 Payment & State Machine Confirmation Flow
+- Host accepts booking request $\to$ status transitions to `PAYMENT_PENDING`.
+- Backend generates Razorpay Order ID.
+- Guest completes sandbox payment $\to$ backend verifies HMAC-SHA256 signature.
+- Status transitions to `CONFIRMED` $\to$ Redis lock is released.
+
+---
+
+# 4. Booking State Machine & Concurrency Control
 
 ```mermaid
 stateDiagram-v2
-    [*] --> PENDING: Guest requests booking
+    [*] --> PENDING: Guest submits booking request
     PENDING --> PAYMENT_PENDING: Host accepts request
-    PENDING --> REJECTED: Host rejects request
-    PENDING --> CANCELLED: Guest cancels before approval
+    PENDING --> REJECTED: Host declines request
+    PENDING --> CANCELLED: Guest cancels before host action
     
     PAYMENT_PENDING --> CONFIRMED: Payment signature verified (Razorpay)
-    PAYMENT_PENDING --> CANCELLED: Payment failed / expired (10m TTL)
+    PAYMENT_PENDING --> CANCELLED: Payment fails / 10-min window expires
     
-    CONFIRMED --> COMPLETED: Stay completed (check_out date passed)
-    CONFIRMED --> CANCELLED: Guest cancels before check-in
+    CONFIRMED --> COMPLETED: Stay checkout date passed
+    CONFIRMED --> CANCELLED: Guest cancels before check-in date
     
     COMPLETED --> [*]
     CANCELLED --> [*]
     REJECTED --> [*]
 ```
 
-### State Machine Implementation Rule (`booking.statemachine.js`)
-
+## 4.1 Strict Booking State Transitions
+Enforced by `booking.statemachine.js`:
 ```javascript
 const ALLOWED_TRANSITIONS = {
   PENDING: ['PAYMENT_PENDING', 'REJECTED', 'CANCELLED'],
@@ -271,46 +348,37 @@ const ALLOWED_TRANSITIONS = {
 };
 
 function canTransition(currentStatus, nextStatus) {
-  const allowedNext = ALLOWED_TRANSITIONS[currentStatus] || [];
-  return allowedNext.includes(nextStatus);
+  const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
+  return allowed.includes(nextStatus);
 }
 ```
 
 ---
 
-# 4. Concurrency Control: Redis Lock vs SQL Transaction
-
-A classic interview question is: *"Why do you use both Redis and SQL transactions? Isn't one enough?"*
+## 4.2 Two-Tier Concurrency: Redis Mutex vs PostgreSQL Row Locks
 
 ```mermaid
 flowchart TD
-    Req1["Guest A: Books Property 5 (Oct 10-15)"] --> LockCheck{"Redis Mutex Check"}
-    Req2["Guest B: Books Property 5 (Oct 12-16)"] --> LockCheck
+    Req1["Guest A: Books Room 101 (Oct 1-5)"] --> Lock{"Redis Mutex Check"}
+    Req2["Guest B: Books Room 101 (Oct 3-7)"] --> Lock
 
-    LockCheck -- "Guest A arrives first" --> SetLock["Redis SET lock:5:dates NX EX 600<br/>(Acquired: TRUE)"]
-    LockCheck -- "Guest B arrives 50ms later" --> DenyLock["Redis SET lock:5:dates NX EX 600<br/>(Acquired: FALSE)"]
+    Lock -- "Arrives at 0ms" --> SetLock["Redis SET lock:101:dates guestA NX EX 600<br/>(Acquired: TRUE)"]
+    Lock -- "Arrives at 10ms" --> FailLock["Redis SET lock:101:dates guestB NX EX 600<br/>(Acquired: FALSE)"]
     
-    DenyLock --> FastFail["HTTP 409 Conflict<br/>(Fails in 2ms, ZERO database load)"]
-    
-    SetLock --> DBTx["PostgreSQL ACID Transaction<br/>BEGIN;"]
-    DBTx --> RowLock["SELECT ... FOR UPDATE<br/>(Double-booking check)"]
-    RowLock --> InsertBooking["INSERT INTO bookings (...);<br/>COMMIT;"]
-    InsertBooking --> Success["HTTP 201 Created"]
+    FailLock --> Reject["HTTP 409 Conflict<br/>(Rejects in 2ms, zero DB load!)"]
+    SetLock --> DB["PostgreSQL ACID Transaction<br/>SELECT ... FOR UPDATE<br/>INSERT INTO bookings<br/>COMMIT;"]
+    DB --> Success["HTTP 201 Created"]
 ```
 
-### The "Why Both?" Defense:
-1. **Redis Distributed Mutex (`Tier 1 - Speed & Protection`):**
-   - Executed via `SET lock:property:{id}:{checkIn}_{checkOut} guestId NX EX 600`.
-   - Protects the database from heavy concurrent lock contention. If 1,000 users try to book the same room on Diwali, 999 are rejected in **~2 milliseconds** in memory without hammering PostgreSQL.
-2. **PostgreSQL Row-Locking Transaction (`Tier 2 - Source of Truth`):**
-   - Executed via `SELECT id FROM bookings WHERE ... FOR UPDATE`.
-   - Guarantees 100% ACID consistency even if the Redis server crashes or restarts.
+### Why Both Are Essential:
+1. **Redis Lock (Performance Layer):** Absorbs high-traffic bursts (flash sales, holiday rushes) in memory. Rejects 99% of conflicting requests in ~2ms.
+2. **PostgreSQL `FOR UPDATE` (Integrity Layer):** The true source of truth. Even if Redis loses power or restarts, the ACID database transaction prevents double-booking.
 
 ---
 
 # 5. Code-Wise Architecture: The 5-Layer Pattern
 
-Vistora enforces a strict **Unidirectional Dependency Flow**:
+Vistora follows a strict **Unidirectional Layered Monolith**:
 
 ```
 [HTTP Request]
@@ -336,21 +404,19 @@ Vistora enforces a strict **Unidirectional Dependency Flow**:
 
 ---
 
-## 5.1 The 5 Architectural Layers
+## 5.1 Layer Responsibilities & Strict Rules
 
-| Layer | Primary Role | Rules & Constraints |
+| Layer | Responsibility | What is NEVER Allowed Here |
 |---|---|---|
-| **1. Routes** | URL mapping & pipeline setup | Must chain in order: `auth` $\to$ `role` $\to$ `validate` $\to$ `controller`. Never contains logic. |
-| **2. Validation** | Request body vetting | Uses Zod `.strict()`. Rejects invalid inputs before any database or business logic executes. |
-| **3. Controller** | HTTP Translation | Extracts params (`req.body`, `req.params`, `req.user`), calls Service, sends HTTP status (`200`, `201`), passes errors to `next(error)`. |
-| **4. Service** | Business Domain | Owns business rules, bcrypt hashing, JWT issuance. Throws operational `AppError`. Never touches Express `req` or `res`. |
-| **5. Repository** | Data Access | Parameterized SQL queries (`$1, $2`). Manages PostgreSQL transactions (`BEGIN`, `COMMIT`, `ROLLBACK`). |
+| **Route** | Declares endpoints, chains middlewares in strict order. | Business logic, SQL queries, direct response sending. |
+| **Validation** | Uses Zod `.strict()` to reject bad payloads early. | Database queries, session token verification. |
+| **Controller** | Extracts parameters, calls Service, sends HTTP status codes. | SQL queries, password/MPIN hashing algorithms. |
+| **Service** | Core business logic, bcrypt hashing, JWT issuance, AppError. | Accessing Express `req` or `res` objects. |
+| **Repository** | Parameterized SQL queries (`$1, $2`), transactions. | HTTP status codes, business rule decisions. |
 
 ---
 
 ## 5.2 Complete Request Lifecycle Trace (`POST /api/properties`)
-
-Here is how a real request flows through the physical code:
 
 ```
 Step 1: Client Request
@@ -359,11 +425,11 @@ Headers: { "Authorization": "Bearer <JWT>" }
 Body: { "title": "Beach Villa", "location": "Goa", "price_per_night": 5000, "max_guests": 4, "images": [...], "amenity_ids": [1, 2] }
    │
    ▼
-Step 2: Route Match (src/modules/properties/property.routes.js)
+Step 2: Route Layer (property.routes.js)
 router.post('/', authMiddleware, requireRole(['HOST']), validate(createPropertySchema), propertyController.createProperty);
    │
    ▼
-Step 3: authMiddleware (src/middleware/auth.middleware.js)
+Step 3: authMiddleware (auth.middleware.js)
 1. Checks Authorization header starts with 'Bearer '.
 2. Verifies token with jwt.verify().
 3. Looks up user in DB: findUserById(decoded.userId).
@@ -371,24 +437,24 @@ Step 3: authMiddleware (src/middleware/auth.middleware.js)
 5. Populates req.user = { id: 7, role: 'HOST', ... }.
    │
    ▼
-Step 4: roleMiddleware (src/middleware/role.middleware.js)
+Step 4: roleMiddleware (role.middleware.js)
 Checks requireRole(['HOST']). Since req.user.role === 'HOST', calls next().
    │
    ▼
-Step 5: validateMiddleware (src/middleware/validate.middleware.js)
+Step 5: validateMiddleware (validate.middleware.js)
 Runs createPropertySchema.safeParse(req.body). Sanitizes and types data.
    │
    ▼
-Step 6: Controller (src/modules/properties/property.controller.js)
+Step 6: Controller (property.controller.js)
 Calls propertyService.createProperty(req.user.id, req.body).
    │
    ▼
-Step 7: Service (src/modules/properties/property.service.js)
+Step 7: Service (property.service.js)
 Extracts images and amenityIds; prepares clean propertyData object.
 Calls propertyRepository.createPropertyWithDetails(propertyData, images, amenityIds).
    │
    ▼
-Step 8: Repository (src/modules/properties/property.repository.js)
+Step 8: Repository (property.repository.js)
 1. const client = await pool.connect();
 2. await client.query('BEGIN');
 3. INSERT INTO properties (...) RETURNING *;
@@ -489,12 +555,10 @@ erDiagram
 
 ---
 
-## 6.2 Advanced SQL Patterns Used in Vistora
+## 6.2 Advanced SQL Techniques Used in Vistora
 
-### 1. `JSON_AGG` & `DISTINCT` (Preventing the Cartesian Product Fan-Out)
-When querying a property with its photos and amenities, a basic `LEFT JOIN` creates a multiplication of rows: 5 photos $\times$ 4 amenities = 20 duplicated property rows.
-
-Vistora eliminates this by having PostgreSQL aggregate relations directly into JSON arrays:
+### 1. `JSON_AGG` & `DISTINCT` (Preventing Cartesian Product Duplication)
+Joining photos (5 rows) and amenities (4 rows) on properties produces $5 \times 4 = 20$ rows. PostgreSQL aggregates them directly into JSON arrays:
 ```sql
 SELECT
   p.*,
@@ -517,15 +581,14 @@ GROUP BY p.id, u.id;
 ```
 
 ### 2. Bulk Insert with `UNNEST`
-Instead of running a loop of multiple `INSERT` queries for images, a single parameterized array is expanded inside PostgreSQL:
+Inserts an entire JavaScript array in one SQL query without string concatenation:
 ```sql
 INSERT INTO property_images (property_id, url)
 SELECT $1, UNNEST($2::text[])
 RETURNING id, url;
 ```
 
-### 3. Date Overlap Formula
-To check if two date ranges $(A_{\text{start}}, A_{\text{end}})$ and $(B_{\text{start}}, B_{\text{end}})$ overlap, the SQL condition is:
+### 3. Date Overlap Formula with Row Locking
 ```sql
 SELECT id FROM bookings
 WHERE property_id = $1
@@ -533,52 +596,144 @@ WHERE property_id = $1
   AND NOT (check_out <= $2 OR check_in >= $3)
 FOR UPDATE;
 ```
-> [!TIP]
-> The condition `NOT (check_out <= $2 OR check_in >= $3)` accurately detects partial overlaps, total overlaps, and enclosing date ranges.
 
 ---
 
-# 7. 10 Killer Spoken Answers for the Interview
+# 7. Comprehensive Interview Masterclass: 25+ Technical Q&A
 
-Practice these 30-40 second answers out loud:
-
-### Q1: "Why raw SQL instead of Prisma or TypeORM?"
-> *"I chose raw SQL with the `pg` library to have complete control over query performance, database-level locking, and connection pooling. ORMs often abstract away transactions and produce inefficient subqueries or N+1 query problems when fetching nested relations like images and amenities. With raw SQL, I wrote clean parameterized queries to prevent SQL injection, used PostgreSQL's `JSON_AGG` to serialize relational data directly in the database engine in a single round-trip, and wrote explicit ACID transactions with `BEGIN`, `COMMIT`, and `ROLLBACK`."*
-
-### Q2: "Why OTP + MPIN instead of standard email and password?"
-> *"Rental platforms require strong mobile identity because hosts and guests communicate directly via phone and WhatsApp. Passwords create credential-stuffing vulnerabilities and password-reset friction. OTP verifies phone ownership, while a 4-digit MPIN gives users a fast daily unlock like modern fintech apps."*
-
-### Q3: "What is the purpose of the 2-minute signed `otpTicket`?"
-> *"The `otpTicket` is a short-lived cryptographic JWT bridging OTP verification and MPIN verification. Without this ticket, an attacker could bypass OTP verification entirely and call `/api/auth/mpin/verify` or `/mpin/set` directly. The ticket contains `{ userId, mobile, purpose: 'OTP_VERIFIED' }`, ensuring that only a client that just verified the OTP can touch the MPIN endpoints."*
-
-### Q4: "How do you handle double-booking race conditions?"
-> *"I implemented a two-tier concurrency control strategy:  
-> 1. Fast mutual exclusion in Redis using `SET lock:property:{id}:{dates} {guestId} NX EX 600`, which rejects concurrent requests in ~2ms without loading the database.  
-> 2. A database-level source of truth using a PostgreSQL ACID transaction with `SELECT ... FOR UPDATE` and a date overlap condition to prevent overlapping reservations at the data layer."*
-
-### Q5: "How does your soft MPIN tab-lock work between frontend and backend?"
-> *"The frontend listens to the HTML5 Page Visibility API. When a user navigates away and returns, Pinia sets `isLocked = true` and renders an MPIN overlay. The user enters their MPIN, which calls `POST /api/auth/mpin/unlock` using their active access token. The backend verifies the MPIN hash and returns `{ unlocked: true }` without regenerating tokens, keeping existing session state and pending requests intact."*
-
-### Q6: "How do you block suspended users in real time with stateless JWTs?"
-> *"Purely stateless JWTs cannot invalidate a user until the token expires. To fix this, our `authMiddleware` queries PostgreSQL using `findUserById(decoded.userId)` on every authenticated request. If `user.is_suspended` is true, it immediately aborts with an HTTP 403 Forbidden response, revoking access in real time."*
-
-### Q7: "Why did you use `JSON_AGG` and `DISTINCT` in the property module?"
-> *"In `findPropertyById`, joining `property_images` and `property_amenities` simultaneously causes a Cartesian product fan-out. 5 images and 4 amenities produce 20 rows. Using `JSON_AGG(DISTINCT JSONB_BUILD_OBJECT(...))` deduplicates entries and returns images and amenities as structured JSON arrays directly from PostgreSQL in a single network round-trip."*
-
-### Q8: "How does silent session refresh work on 401 errors?"
-> *"When the 15-minute access token expires, the Axios interceptor catches the 401 response. It places subsequent outgoing requests into a promise queue (`failedQueue`), sends the refresh token to `POST /api/auth/refresh`, updates the stored access token, and then replays all queued requests seamlessly."*
-
-### Q9: "Why do you store refresh tokens in the database if they are signed JWTs?"
-> *"Signing a JWT only guarantees integrity, not revocability. By persisting refresh tokens in the `refresh_tokens` table, we can immediately revoke sessions upon user logout, password reset, or admin suspension by deleting the token record from the database."*
-
-### Q10: "How does your 5-layer architecture make the codebase maintainable?"
-> *"Each layer has a single responsibility: Routes define endpoints and middleware chains; Zod validates schemas before logic runs; Controllers handle HTTP status codes; Services contain domain logic and cryptography; and Repositories execute raw SQL. Each module exposes a single `index.js`, making modules pluggable black boxes."*
+These questions cover everything an interviewer might ask a 1-year experience Node.js Full-Stack Developer. Practice them out loud!
 
 ---
 
-# 8. Backend Completion Blueprint (Next Steps)
+### Category A: Core Full-Stack & Web Fundamentals
 
-To complete the backend and make it 100% demo-ready for your interview:
+#### Q1: What is the difference between Authentication and Authorization?
+> **Answer:**  
+> "Authentication is verifying **who you are**—confirming your identity through credentials like mobile OTP or MPIN. Authorization is determining **what you are allowed to do**—checking permissions and roles after identity is established. If authentication fails, the server returns HTTP 401 Unauthorized. If authorization fails, it returns HTTP 403 Forbidden."
+
+#### Q2: What is the difference between HTTP 401 Unauthorized and HTTP 403 Forbidden?
+> **Answer:**  
+> "HTTP 401 means the client is unauthenticated—either the token is missing, malformed, or expired. HTTP 403 means the server knows exactly who the client is, but that user does not have permission to access the resource. For example, in Vistora, if a Guest tries to create a property listing, they receive a 403 Forbidden because that endpoint requires the `HOST` role."
+
+#### Q3: HTTP is stateless. How does your backend remember who made the request?
+> **Answer:**  
+> "Since HTTP does not retain state between requests, we use token-based authentication. Upon login, the server issues a cryptographically signed JSON Web Token. On every subsequent request, the client passes this token in the `Authorization: Bearer <token>` header. The server verifies the token's cryptographic signature and extracts the user claims, identifying the caller without maintaining in-memory session states."
+
+#### Q4: What is the difference between Hashing and Encryption?
+> **Answer:**  
+> "Hashing is a **one-way function**: once data is hashed (e.g., using bcrypt for our MPINs), it cannot be reversed back into plaintext. It is used to verify passwords and PINs without ever storing the secret. Encryption is a **two-way function**: data is scrambled using an encryption key and can be decrypted back into its original form using a key (e.g., AES). Passwords and MPINs must always be hashed, never encrypted."
+
+#### Q5: What is SQL Injection and how did you prevent it without using an ORM?
+> **Answer:**  
+> "SQL Injection occurs when untrusted user input is directly concatenated into a SQL string, allowing an attacker to manipulate the query logic. I prevented this by using **parameterized queries** with PostgreSQL's `$1, $2` placeholders via the `pg` library. The database engine treats parameters strictly as literal data values, never as executable SQL code."
+
+#### Q6: What is CORS and why does a browser send an `OPTIONS` preflight request?
+> **Answer:**  
+> "CORS (Cross-Origin Resource Sharing) is a browser security mechanism that restricts a web page from making requests to a different domain, port, or protocol. For non-simple HTTP requests—such as requests sending `Content-Type: application/json` or custom `Authorization` headers—the browser automatically sends an `OPTIONS` preflight request to verify whether the server permits that cross-origin method and headers before dispatching the actual request."
+
+---
+
+### Category B: Authentication, JWT & Security Deep-Dive
+
+#### Q7: Where is JWT handled: Frontend or Backend?
+> **Answer:**  
+> "It is a collaborative handshake. The **Backend** is the cryptographic authority: it signs the JWT using a private secret, verifies signatures, checks user suspension, and handles token issuance and revocation. The **Frontend** acts as the bearer and session manager: it stores the token, injects it into every outgoing request's `Authorization: Bearer` header, intercepts 401 expiration responses using Axios interceptors, triggers silent refresh calls, and purges the token upon logout."
+
+#### Q8: What are the three parts of a JWT? Is the payload encrypted?
+> **Answer:**  
+> "A JWT consists of Header, Payload, and Signature, separated by dots. The payload is **Base64Url-encoded, not encrypted**—anyone can decode and read its claims. The security comes entirely from the Signature, which is generated using a server-side secret (`HMACSHA256`). If an attacker tampers with the payload, the signature verification on the backend fails immediately."
+
+#### Q9: Why do you use a Dual-Token Strategy (Access Token + Refresh Token)?
+> **Answer:**  
+> "To balance security and user experience. Access tokens are short-lived—15 minutes—limiting the exposure window if intercepted. Refresh tokens live for 7 days and are stored server-side in our PostgreSQL database. This allows the frontend to silently renew expired access tokens in the background without forcing the user to log in repeatedly, while still allowing the backend to revoke sessions on logout or suspension by deleting the refresh token."
+
+#### Q10: What is the purpose of the 2-minute signed `otpTicket`?
+> **Answer:**  
+> "The `otpTicket` is a short-lived cryptographic JWT bridging OTP verification and MPIN verification. Without this ticket, an attacker could bypass OTP verification entirely and call `/api/auth/mpin/verify` or `/mpin/set` directly. The ticket contains claims for `userId`, `mobile`, and `purpose: 'OTP_VERIFIED'`. The MPIN endpoints verify these claims before checking the MPIN hash, ensuring that only a client that completed OTP verification within the last 120 seconds can proceed."
+
+#### Q11: Where do you store tokens on the frontend, and what are the security trade-offs?
+> **Answer:**  
+> "Storing tokens in `localStorage` makes them vulnerable to Cross-Site Scripting (XSS) attacks because any injected script can read storage. Storing them in `httpOnly` cookies protects them from JavaScript access, but introduces Cross-Site Request Forgery (CSRF) risks. The industry standard is storing short-lived access tokens in memory or `localStorage` with strict Content Security Policies, while keeping refresh tokens in `httpOnly, Secure, SameSite=Strict` cookies."
+
+#### Q12: How does your frontend Axios interceptor handle token expiration and concurrent requests?
+> **Answer:**  
+> "Our Axios response interceptor intercepts HTTP 401 errors. If a refresh request is already running, subsequent requests push their resolve/reject callbacks into a `failedQueue` array. The initial 401 triggers `POST /api/auth/refresh`. Once the new access token is received, we resolve all queued requests with the new token and retry the original call seamlessly. If the refresh fails, we clear storage and redirect to `/login`."
+
+#### Q13: How do you block suspended users in real time if JWT is stateless?
+> **Answer:**  
+> "Purely stateless JWT validation only checks the signature and expiration timestamp, meaning a suspended user could continue making requests until the token expires. To fix this, our `authMiddleware` queries PostgreSQL using `findUserById(decoded.userId)` on every authenticated request. If `user.is_suspended` is true, it immediately aborts with an HTTP 403 Forbidden response, revoking access in real time."
+
+#### Q14: How does the soft MPIN tab-lock work?
+> **Answer:**  
+> "The frontend uses the HTML5 Page Visibility API. When a user switches tabs, `document.visibilityState` becomes `hidden`. Upon returning, Pinia sets `isLocked = true` and renders an MPIN overlay. The user enters their MPIN, which calls `POST /api/auth/mpin/unlock` using their active access token. The backend verifies the MPIN hash and returns `{ unlocked: true }` without regenerating tokens, keeping active network requests and session state completely intact."
+
+---
+
+### Category C: Node.js, Express & Architecture
+
+#### Q15: How does the Node.js Event Loop work?
+> **Answer:**  
+> "Node.js runs on a single-threaded event loop powered by libuv. It executes synchronous JavaScript on the Call Stack. When an asynchronous operation (such as a database query or network call) occurs, it is offloaded to the operating system kernel or libuv's thread pool. Once completed, the callback is pushed to the Event Queue (or Microtask Queue for Promises) and picked up by the Event Loop when the Call Stack becomes empty."
+
+#### Q16: Explain your 5-layer backend architecture.
+> **Answer:**  
+> "The backend follows a 5-layer structure:  
+> 1. **Route Layer:** Maps URLs and chains middlewares.  
+> 2. **Validation Layer:** Uses Zod `.strict()` to sanitize request bodies before business logic runs.  
+> 3. **Controller Layer:** Extracts parameters and formats HTTP responses.  
+> 4. **Service Layer:** Pure domain logic, cryptography, and token generation.  
+> 5. **Repository Layer:** Parameterized SQL queries and database transactions.  
+> Each module exposes a single `index.js`, making modules self-contained black boxes."
+
+#### Q17: How does your centralized error handling architecture work?
+> **Answer:**  
+> "We created an `AppError` class that extends JavaScript's `Error`, adding an HTTP `statusCode` and an `isOperational = true` flag. Services throw operational errors (e.g., duplicate email $\to$ 409). Controllers catch errors and forward them via `next(error)`. A global error middleware catches all errors: operational errors return their specific status code and message, while unhandled 500 errors log the stack trace to the console and return a clean, secure error message to the client."
+
+#### Q18: What is connection pooling in `pg` and why is it important?
+> **Answer:**  
+> "Establishing a new TCP and SSL connection to a PostgreSQL database on every HTTP request is slow and resource-intensive. Connection pooling maintains a pool of pre-warmed database connections. When a request comes in, it checks out an available client, runs the query, and immediately releases the client back to the pool for reuse, allowing the application to handle hundreds of concurrent requests efficiently."
+
+#### Q19: What is the role of `Zod` in your validation middleware?
+> **Answer:**  
+> "Zod acts as our gatekeeper. The `validate(schema)` middleware runs `schema.safeParse(req.body)`. If validation fails, it immediately halts execution with an HTTP 400 Bad Request and returns structured field-level error messages. It also strips unexpected fields (`.strict()`), ensuring malicious parameters are dropped before touching the controller or database."
+
+---
+
+### Category D: PostgreSQL, Raw SQL & Concurrency
+
+#### Q20: Why did you choose raw SQL with `pg` instead of an ORM like Prisma or TypeORM?
+> **Answer:**  
+> "I chose raw SQL to retain full control over query performance, database-level locking, and connection pooling. ORMs often abstract away transactions and produce inefficient subqueries or N+1 query problems when fetching nested relations like images and amenities. With raw SQL, I wrote clean parameterized queries, used PostgreSQL's `JSON_AGG` to serialize relational data directly in the database engine in a single round-trip, and wrote explicit ACID transactions with `BEGIN`, `COMMIT`, and `ROLLBACK`."
+
+#### Q21: What is the Cartesian product fan-out problem and how did you solve it using `JSON_AGG`?
+> **Answer:**  
+> "When joining a property with multiple 1-to-N relations—like 5 images and 4 amenities—a standard join multiplies the rows ($5 \times 4 = 20$ rows), duplicating property data 20 times. I solved this by using PostgreSQL's `JSON_AGG(DISTINCT JSONB_BUILD_OBJECT(...))`. The database engine aggregates related photos and amenities directly into nested JSON arrays in a single query round-trip, eliminating data duplication."
+
+#### Q22: Why was the `DISTINCT` keyword necessary inside `JSON_AGG`?
+> **Answer:**  
+> "Because we perform two `LEFT JOIN` operations simultaneously: one on `property_images` and one on `property_amenities`. The double join produces a Cartesian product. Without `DISTINCT`, `JSON_AGG` would aggregate the same photo multiple times for every matched amenity. Adding `DISTINCT` inside the aggregation deduplicates entries before serializing them into JSON."
+
+#### Q23: How did you implement database transactions when creating a property?
+> **Answer:**  
+> "Creating a property requires inserting records into three separate tables: `properties`, `property_images`, and `property_amenities`. I check out a dedicated client from the pool and wrap the queries in `BEGIN`, `COMMIT`, and `ROLLBACK`. First, we insert the property to get its ID. Then we bulk-insert photos using `UNNEST()` and amenities using a CTE. If any insert fails, the transaction rolls back, preventing orphaned properties without photos or amenities."
+
+#### Q24: How do you prevent double-booking race conditions?
+> **Answer:**  
+> "I implemented a two-tier concurrency control strategy:  
+> 1. **Redis Distributed Mutex:** When a booking is initiated, we set `SET lock:property:{id}:{dates} {guestId} NX EX 600`. If another user attempts to book the same dates, the lock fails, rejecting the request in ~2ms without hitting PostgreSQL.  
+> 2. **PostgreSQL Row Lock:** Inside the booking transaction, we query conflicting bookings with `SELECT ... FOR UPDATE` and a date overlap condition `NOT (check_out <= $2 OR check_in >= $3)`. The `FOR UPDATE` locks conflicting rows at the database level, guaranteeing ACID consistency."
+
+#### Q25: Why do you need both Redis locks AND database row locks? Isn't one enough?
+> **Answer:**  
+> "They serve complementary purposes:  
+> - Redis provides **in-memory speed and protection**: during peak traffic (e.g., flash sales), it deflects 99% of conflicting requests in milliseconds, protecting the database connection pool from lock exhaustion.  
+> - PostgreSQL provides the **durable source of truth**: if the Redis instance restarts, crashes, or suffers a network partition, the database transaction guarantees that double-booking is physically impossible at the data layer."
+
+---
+
+# 8. Backend Completion Blueprint (Next Action Steps)
+
+To complete the backend and make it 100% demo-ready:
 
 ```
 [Phase 4: Search & Filters]
