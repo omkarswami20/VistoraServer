@@ -1,4 +1,4 @@
- const express = require('express');
+  const express = require('express');
 
   const authController = require('./auth.controller');
   const {
@@ -12,6 +12,7 @@
   } = require('./auth.validation');
   const validate = require('../../middleware/validate.middleware');
   const authMiddleware = require('../../middleware/auth.middleware');
+  const { authRateLimiter } = require('../../middleware/rateLimiter.middleware');
 
   const router = express.Router();
 
@@ -23,12 +24,14 @@
 
   router.post(
     '/otp/request',
+    authRateLimiter,
     validate(otpRequestSchema),
     authController.requestOtp
   );
 
   router.post(
     '/otp/verify',
+    authRateLimiter,
     validate(otpVerifySchema),
     authController.verifyOtp
   );
@@ -41,6 +44,7 @@
 
   router.post(
     '/mpin/verify',
+    authRateLimiter,
     validate(mpinVerifySchema),
     authController.verifyMpin
   );
@@ -61,6 +65,12 @@
   router.post(
     '/logout',
     authController.logout
+  );
+
+  router.post(
+    '/logout-all',
+    authMiddleware,
+    authController.logoutAll
   );
 
   module.exports = router;

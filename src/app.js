@@ -30,6 +30,7 @@ app.use(express.json());
 app.use(cookieParser());
 app.use('/api/auth', require('./modules/auth'));
 app.use('/api/properties', require('./modules/properties'));
+app.use('/api/admin', require('./modules/admin'));
 
 app.get('/health', (req, res) => {
   res.json({ message: 'API is running' });

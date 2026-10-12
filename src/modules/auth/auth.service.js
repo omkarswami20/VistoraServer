@@ -270,6 +270,21 @@ async function refreshAccessToken({ refreshToken } = {}) {
     throw createAppError('This account has been suspended', 403);
   }
 
+  // Rotate refresh token: delete used token
+  await authRepository.deleteRefreshToken(refreshToken);
+
+  const newRefreshToken = jwt.sign(
+    {
+      userId: user?.id,
+      type: 'REFRESH',
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  await authRepository.createRefreshToken(user?.id, newRefreshToken, expiresAt);
+
   const accessToken = jwt.sign(
     {
       userId: user?.id,
@@ -280,7 +295,7 @@ async function refreshAccessToken({ refreshToken } = {}) {
     { expiresIn: '15m' }
   );
 
-  return { accessToken };
+  return { accessToken, refreshToken: newRefreshToken };
 }
 
 async function unlockMpin({ userId, mpin } = {}) {
@@ -325,6 +340,16 @@ async function logout({ refreshToken, userId } = {}) {
   return { loggedOut: true };
 }
 
+async function logoutAll(userId) {
+  if (!userId) {
+    throw createAppError('User authentication required', 401);
+  }
+
+  await authRepository.deleteRefreshTokensByUserId(userId);
+
+  return { loggedOut: true };
+}
+
 module.exports = {
   registerUser,
   requestOtp,
@@ -334,4 +359,5 @@ module.exports = {
   refreshAccessToken,
   unlockMpin,
   logout,
+  logoutAll,
 };

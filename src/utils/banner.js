@@ -30,6 +30,7 @@ ${c.cyan}${c.bold}  ╔═══════════════════
   ║   ${c.bold}Mounted Modules:${c.reset}${c.cyan}                                           ║
   ║     ${c.dim}├──${c.reset}${c.cyan} 🔐 Auth        ${c.dim}->${c.reset} ${c.yellow}/api/auth${c.reset}${c.cyan}                                ║
   ║     ${c.dim}├──${c.reset}${c.cyan} 🏡 Properties  ${c.dim}->${c.reset} ${c.yellow}/api/properties${c.reset}${c.cyan}                          ║
+  ║     ${c.dim}├──${c.reset}${c.cyan} 🛡️  Admin       ${c.dim}->${c.reset} ${c.yellow}/api/admin${c.reset}${c.cyan}                               ║
   ║     ${c.dim}└──${c.reset}${c.cyan} 🩺 Health      ${c.dim}->${c.reset} ${c.yellow}/health${c.reset}${c.cyan}                                  ║
   ║                                                              ║
   ╚══════════════════════════════════════════════════════════════╝${c.reset}

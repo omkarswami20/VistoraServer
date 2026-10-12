@@ -112,6 +112,19 @@ async function logout(req, res, next) {
   }
 }
 
+async function logoutAll(req, res, next) {
+  try {
+    const result = await authService.logoutAll(req?.user?.id ?? null);
+
+    return res.status(200).json({
+      message: 'Logged out from all sessions',
+      ...(result ?? {}),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   register,
   requestOtp,
@@ -121,4 +134,5 @@ module.exports = {
   refreshToken,
   unlockMpin,
   logout,
+  logoutAll,
 };
